@@ -11,17 +11,18 @@ except ImportError:
     print("Required library 'paramiko' not found. Please install it and run this script again",
           file=sys.stderr)
     sys.exit(1)
-    
+
 import pycurl
 import urlparse
 import urllib
 import argparse
 import os
+import posixpath as urlpath
 import re
 import getpass
 import signal
 
-from StringIO import StringIO 
+from StringIO import StringIO
 from lxml import etree
 
 from socket import gaierror
@@ -51,7 +52,7 @@ signal.signal(signal.SIGINT, signal_handler)
 
 
 def curl(server, endpoint, path_params={}, query_params={}, post_params=[], user="", password="", write_to = None, urlencode=True, timeout=None):
-        
+
     c = pycurl.Curl()
 
     if write_to is None:
@@ -61,23 +62,23 @@ def curl(server, endpoint, path_params={}, query_params={}, post_params=[], user
 
     try:
         url = list(server)
-            
+
         url[2] = endpoint.format(**path_params)
         url[4] = urllib.urlencode(query_params)
         c.setopt(pycurl.URL, urlparse.urlunparse(url))
-    
+
         c.setopt(pycurl.FOLLOWLOCATION, False)
         c.setopt(pycurl.CONNECTTIMEOUT, 2)
-        if timeout is not None: 
+        if timeout is not None:
             c.setopt(pycurl.TIMEOUT, int(timeout))
         c.setopt(pycurl.NOSIGNAL, 1)
         c.setopt(pycurl.HTTPAUTH, pycurl.HTTPAUTH_DIGEST)
         c.setopt(pycurl.USERPWD, user + ':' + password)
         c.setopt(pycurl.HTTPHEADER, ['X-Requested-Auth: Digest', 'X-Opencast-Matterhorn-Authorization: true'])
-       
+
         if post_params:
             if urlencode:
-                c.setopt(pycurl.POST, 1) 
+                c.setopt(pycurl.POST, 1)
                 c.setopt(pycurl.POSTFIELDS, urllib.urlencode(postfield))
             else:
                 c.setopt(pycurl.HTTPPOST, [ (item[0], urllib.quote_plus(item[1])) for item in post_params ])
@@ -100,7 +101,7 @@ def curl(server, endpoint, path_params={}, query_params={}, post_params=[], user
         #print("An exception has occurred: {}, {}".format(type(e).__name__, e), file=sys.stderr)
         raise
     finally:
-        c.close() 
+        c.close()
         if write_to is None:
             b.close()
 
@@ -119,7 +120,7 @@ def get_dirs(client, keys, conf_file, extra_dirs):
             for line in chan.makefile().readlines():
                 pass
             value = re.sub('^\s*{}\s*='.format(key), "", line).strip()
-            
+
             if value:
                 dirs.add(value)
             else:
@@ -132,41 +133,110 @@ def get_dirs(client, keys, conf_file, extra_dirs):
         for d in extra_dirs:
             if d:
                 dirs.add(d)
-    
+
     return dirs
 
 
 # Remove the server "mountpoint" from a track's URL
-def get_relative_path(url):
+def get_relative_path(path):
+
+    # If the path contains a "tag" (streaming URL), remove it and process the path accordingly
+    prefix, sep, suffix = path.partition(':')
+    if sep == ':':
+        # There is a "tag" in the URL. Separate the tag and whatever comes before it
+        prefix, tag = urlpath.split(prefix)
+
+        # Reconstruct the URL removing the "tag" part
+        clean_path = urlpath.join(prefix, suffix)
+
+        # Check if this is a "smil" tag --then we are dealing with the URL to an adaptive streaming catalog
+        if tag == "smil":
+            clean_path = urlpath.dirname(clean_path)
+
+        ext = urlpath.splitext(clean_path)[1]
+        if ext == "":
+            clean_path = clean_path + '.' + tag
+        elif ext != '.' + tag:
+            print("WARNING: Found conflicting tag in path '{}'. Ignoring the tag '{}'".format(path, tag),
+                  file = sys.stderr)
+    else:
+        clean_path = path
+
+    # Get the path extension
+    ext = urlpath.splitext(clean_path)[1]
+    if ext == "":
+        print("WARNING: Found URL without extension: {}".format(url))
+
+    # Extract the download server "mountpoint"
+    # Matterhorn resource URLs in distributed mediapackage take the form:
+    #    organization-id/distribution-channel/mediapackage-id/element-id/filename.extension
+    # , therefore, anything that is beyond these four levels in the hierarchy
+    # is a part of the download server "mountpoint"
+    # The exception to this rule are the Wowza SMIL files, which are directly in the root
+    url_path = urlpath.dirname(clean_path)
+    if ext != ".smil":
+        for i in range(3):
+            url_path = urlpath.dirname(url_path)
+
+    # Remove the "mountpoint" from the resource's path to get the system path
+    return urlpath.relpath(clean_path, url_path)
+
+
+def get_relative_path_from_url(url):
 
     # Get this track's URL and parse it
     url_parsed = urlparse.urlparse(url)
 
-    # Extract the download server "mountpoint"
-    # Matterhorn resource URLs in distributed mediapackage take the form:
-    #    distribution-channel/mediapackage-id/element-id/filename.extension
-    # , therefore, anything that is beyond these four levels in the hierarchy 
-    # is a part of the download server "mountpoint"
-    url_path = os.path.dirname(url_parsed.path)
-    for i in range(3):
-        url_path = os.path.dirname(url_path)
-                    
-    # Remove the "mountpoint" from the resource's path to get the system path
-    relative_path = os.path.relpath(url_parsed.path, url_path)
+    return get_relative_path(url_parsed.path)
 
-    # If the path contains a "file extension prefix" (streaming URL), move it to the right place
-    prefix, sep, path = relative_path.partition(':')
-    if sep == ':':
-        path, ext = os.path.splitext(path)
-        if not ext:
-            return path + '.' + prefix
-        elif prefix != ext[1:]:
-            print("WARNING: Found conflicting extension prefix in path '{}'. Ignoring the prefix '{}'".format(relative_path, prefix),
-                  file = sys.stderr)
-            return path
+
+def download_path(scp, path, download_dir, dirs):
+    # Append the relative path to the local download directory
+    local_path = os.path.join(download_dir, path)
+
+    # Check the extension
+    ext = urlpath.splitext(path)[1]
+
+    if ext != ".smil":
+        try:
+            # Attempt to create the local directories
+            os.makedirs(os.path.dirname(local_path), DIRMODE)
+        except OSError as e:
+            # We have already downloaded this file
+            return
+
+    print("Downloading file {}...".format(path), end=" ")
+    # Try to find the relative path in one of the directories read in the configuration
+    for root in dirs:
+        try:
+            # Try to fetch the remote the remote file
+            scp.get(os.path.join(root, path),
+                    local_path,
+                    recursive=True)
+
+            # File correctly downloaded
+            print("Done!")
+
+            # If this is a SMIL file, try and download its contents
+            if ext is not None and ext == ".smil":
+                print("This was a SMIL file. We proceed to download the files inside it.")
+                with open(local_path, "r+") as f:
+                    smil = etree.parse(f)
+
+                for xml_element in smil.iter("video"):
+                    download_path(scp, get_relative_path(xml_element.get("src")), download_dir, dirs)
+
+                # Remove the SMIL file after processing
+                os.remove(local_path)
+                print("Finished downloading media files in the SMIL file '{}'".format(path))
+
+            # We assume the first correct download is the only one possible, so we break
+            break
+        except SCPException:
+            # No problem. The file may not exist in that directory. Ignore.
+            pass
     else:
-        return relative_path
-
+        print("The file '{}' could not be found in the configured locations".format(path), file=sys.stderr)
 
 
 ######################################################################################################################################
@@ -638,7 +708,7 @@ class SCPException(Exception):
 
 
 def main(args):
-    
+
     try:
 
         # Process server URL
@@ -655,12 +725,12 @@ def main(args):
             # Remove the port, if any
             ssh_url = re.sub(":[0-9]+$", "", search_url.netloc)
 
-        
+
         # Create a SSH session to the server
         ssh = paramiko.SSHClient()
         ssh.load_system_host_keys()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        
+
         try:
             # Try passwordless authentication first
             ssh.connect(ssh_url, username=args.ssh_user)
@@ -671,7 +741,7 @@ def main(args):
 
         # Create the SCP client to get the files
         scp = SCPClient(ssh.get_transport())
-        
+
         # Get the directories where to look for the files to download
         dirs = get_dirs(ssh, LOCATION_KEYS, args.config, args.extra_dirs)
 
@@ -682,7 +752,7 @@ def main(args):
         cousa = curl(search_url,
                      args.endpoint,
                      query_params={ "sid": args.series_id },
-                     user=args.digest_user, 
+                     user=args.digest_user,
                      password=getpass.getpass("Enter the digest authentication password: "))
 
         document = etree.fromstring(cousa)
@@ -692,36 +762,15 @@ def main(args):
 
             # Iterate through the tracks in this mediapackage
             for track in mp.iter('{{{}}}track'.format(MP_NAMESPACE)):
-                
-                # Get this track's URL
-                track_url = track.find('{{{}}}url'.format(MP_NAMESPACE)).text
+                if not args.flavors or track.get("type") in args.flavors:
+                    # Get this track's URL
+                    track_url = track.find('{{{}}}url'.format(MP_NAMESPACE)).text
 
-                # Get the relative path of the resource in the remote server
-                rel_path = get_relative_path(track_url)
+                    # Get the relative path of the resource in the remote server
+                    rel_path = get_relative_path_from_url(track_url)
 
-                # Append the relative path to the local download directory
-                local_path = os.path.join(args.download_dir, rel_path)
-                        
-                # Attempt to create the local directories
-                os.makedirs(os.path.dirname(local_path), DIRMODE)
+                    download_path(scp, rel_path, args.download_dir, dirs)
 
-                # Try to find the relative path in one of the directories read in the configuration
-                for root in dirs:
-                    try:
-                        # Try to fetch the remote the remote file
-                        scp.get(os.path.join(root, rel_path),
-                                local_path,
-                                recursive=True)
-
-                        # File correctly downloaded
-                        # We assume the first correct download is the only one possible, so we break
-                        break
-                    except SCPException:
-                        # No problem. The file may not exist in that directory. Ignore.
-                        pass
-                else:
-                    print("WARN: The file '{}' could not be found in the configured locations".format(track_url),
-                          file=sys.stderr)
 
     except pycurl.error as err:
         print("ERROR: Could not get the list of published mediapackages in the series '{}': {}".format(args.series_id, err),
@@ -758,7 +807,7 @@ if __name__ == '__main__':
 
     # Argument parser
     parser = argparse.ArgumentParser(description="Download all the published videos in a Matterhorn series")
-    
+
     # We are only interested in file names, but this way the parser makes sure those files exist
     parser.add_argument('server_url', help='The URL of the engage server where the videos will be downloaded from')
     parser.add_argument('series_id', help='The ID of the series to which the videos that should be downloaded belong')
@@ -775,15 +824,11 @@ if __name__ == '__main__':
                         help='Add an additional directory where the media files will be searched for. Can be specified several times.\n\
                         Please note that the directories \'download.dir\' and \'streaming.dir\' in the Matterhorn server configuration \
                         will always be inspected by default')
-
-    #parser.add_argument('-f', '--force', dest='overwrite', action='store_true', help='Allows overwritting the destination file')
-    # parser.add_argument('-vc', '--vcodec', dest='video_codec', choices=vcodec_map.keys(), default=DEFAULT_VIDEO_ENCODING, help='Output video codec')
-    # parser.add_argument('-vb', '--video-bitrate', dest='video_br', help='Output video bitrate (kbit/sec)')
-    # parser.add_argument('-ac', '--acodec', dest='audio_codec', choices=acodec_map.keys(), default=DEFAULT_AUDIO_ENCODING, help='Output audio codec')
-    # parser.add_argument('-ab', '--audio-bitrate', dest='audio_br', help='Output audio bitrate (kbit/sec)')
+    parser.add_argument('-f', '--flavor', action="append", dest="flavors",
+                        help='Download only the elements with the indicated flavor. It can be specified several times, in order to download\n\
+                        elements with more than one flavor')
 
 #    print(parser.parse_args())
 #    exit(0)
 
     sys.exit(main(parser.parse_args()))
-
