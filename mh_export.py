@@ -21,6 +21,7 @@ import posixpath as urlpath
 import re
 import getpass
 import signal
+import errno
 
 from StringIO import StringIO
 from lxml import etree
@@ -42,6 +43,8 @@ DIRMODE = 0o755
 # Namespace to use at the mediapackages
 MP_NAMESPACE="http://mediapackage.opencastproject.org"
 
+# Name of the query parameter to specify the series ID
+QUERY_PARAM_SERIES_ID = "sid"
 
 # Handle keyboard interrupts gracefully
 def signal_handler(signal, frame):
@@ -179,7 +182,7 @@ def get_relative_path(path):
             url_path = urlpath.dirname(url_path)
 
     # Remove the "mountpoint" from the resource's path to get the system path
-    return urlpath.relpath(clean_path, url_path)
+    return os.path.normpath(urlpath.relpath(clean_path, url_path))
 
 
 def get_relative_path_from_url(url):
@@ -191,19 +194,33 @@ def get_relative_path_from_url(url):
 
 
 def download_path(scp, path, download_dir, dirs):
-    # Append the relative path to the local download directory
-    local_path = os.path.join(download_dir, path)
 
     # Check the extension
     ext = urlpath.splitext(path)[1]
 
-    if ext != ".smil":
-        try:
-            # Attempt to create the local directories
-            os.makedirs(os.path.dirname(local_path), DIRMODE)
-        except OSError as e:
-            # We have already downloaded this file
-            return
+    if ext == ".smil":
+        # Append the relative path to the local download directory
+        local_path = os.path.join(download_dir, path)
+    else:
+        # Remove the two latest directory levels (filename and element ID)
+        reduced_path = path
+        for i in range(2):
+            reduced_path = os.path.dirname(reduced_path)
+
+        local_path = os.path.join(download_dir, os.path.relpath(path, reduced_path))
+
+    try:
+        # Attempt to create the local directories
+        os.makedirs(os.path.dirname(local_path), DIRMODE)
+    except OSError as e:
+        if e.errno == errno.EEXIST:
+            if os.path.dirname(local_path) != download_dir:
+                # The directory already exists. Assume this file have already been downloaded
+                print("WARN: Tried to create an already-existing directory: '{}'.\nSkipping download...".format(os.path.dirname(local_path)), file=sys.stderr)
+                return
+        else:
+            # Raise the exception in any other case
+            raise
 
     print("Downloading file {}...".format(path), end=" ")
     # Try to find the relative path in one of the directories read in the configuration
@@ -237,6 +254,20 @@ def download_path(scp, path, download_dir, dirs):
             pass
     else:
         print("The file '{}' could not be found in the configured locations".format(path), file=sys.stderr)
+
+
+def get_unique_path(path):
+    """
+    Create the directory indicated by path. If it already exists, add a suffix. Return the path of the created directory
+    """
+    i = 1
+    end_path = path
+
+    while os.path.exists(end_path):
+        i += 1
+        end_path = path + "({})".format(i)
+
+    return end_path
 
 
 ######################################################################################################################################
@@ -751,7 +782,7 @@ def main(args):
 
         cousa = curl(search_url,
                      args.endpoint,
-                     query_params={ "sid": args.series_id },
+                     query_params={ QUERY_PARAM_SERIES_ID: args.series_id },
                      user=args.digest_user,
                      password=getpass.getpass("Enter the digest authentication password: "))
 
@@ -759,18 +790,20 @@ def main(args):
 
         # For every mediapackage in the results...
         for mp in document.iter('{{{}}}mediapackage'.format(MP_NAMESPACE)):
+            mp_title = mp.find('{{{}}}title'.format(MP_NAMESPACE)).text.replace("/", "_")
+            mp_dir = get_unique_path(os.path.join(args.download_dir, mp_title))
 
             # Iterate through the tracks in this mediapackage
             for track in mp.iter('{{{}}}track'.format(MP_NAMESPACE)):
-                if not args.flavors or track.get("type") in args.flavors:
+                flavor = track.get("type")
+                if not args.flavors or flavor in args.flavors:
                     # Get this track's URL
                     track_url = track.find('{{{}}}url'.format(MP_NAMESPACE)).text
 
                     # Get the relative path of the resource in the remote server
                     rel_path = get_relative_path_from_url(track_url)
 
-                    download_path(scp, rel_path, args.download_dir, dirs)
-
+                    download_path(scp, rel_path, mp_dir, dirs)
 
     except pycurl.error as err:
         print("ERROR: Could not get the list of published mediapackages in the series '{}': {}".format(args.series_id, err),
@@ -789,7 +822,7 @@ class checkdir(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
         # Try to create the output directory
         try:
-            os.mkdir(values, DIRMODE)
+            os.makedirs(values, DIRMODE)
         except OSError:
             # If the path exists, and it's a directory, check if it's empty
             if os.path.isdir(values):
