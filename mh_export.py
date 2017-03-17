@@ -22,6 +22,7 @@ import re
 import getpass
 import signal
 import errno
+import math
 
 from StringIO import StringIO
 from lxml import etree
@@ -56,13 +57,13 @@ def sigint_handler(signal, frame):
         interrupted()
     else:
         INTERRUPTED = True
-        print('\b\bFinishing the current download before interrupting. Press Crtl-C again to exit immediately...', end=" ")
+        print('\n\nFinishing the current download before interrupting. Press Crtl-C again to exit immediately.\n')
         sys.stdout.flush()
 
 signal.signal(signal.SIGINT, sigint_handler)
 
 def interrupted():
-    print("\b\b\nInterrupted by user!\n")
+    print("\nInterrupted by user!\n")
     sys.exit(1)
 
 
@@ -239,8 +240,6 @@ def download_path(scp, path, download_dir, dirs):
             # Raise the exception in any other case
             raise
 
-    print("Downloading file {}...".format(path), end=" ")
-    sys.stdout.flush()
     # Try to find the relative path in one of the directories read in the configuration
     for root in dirs:
         try:
@@ -290,6 +289,42 @@ def get_unique_path(path):
 
     return end_path
 
+BYTE_UNITS = " kMGTPEZY"
+EXP_MAX = len(BYTE_UNITS)*10
+
+def convert_si(number):
+
+    suffix = ""
+    reduced = 0
+    index = 0
+
+    if number:
+        index = int(math.log(number,2) // 10)
+        exp = index * 10
+        if index:
+            try:
+                suffix = BYTE_UNITS[index]
+                reduced = number / float(2 ** exp)
+            except IndexError:
+                suffix = BYTE_UNITS[len(BYTE_UNITS)-1]
+                reduced = number / float(2 ** EXP_MAX)
+        else:
+            suffix = ""
+            reduced = number
+
+    if float(reduced).is_integer():
+        return "{} {}{}B".format(reduced, suffix, "i" if index else "")
+    else:
+        return "{:.2f} {}{}B".format(reduced, suffix, "i" if index else "")
+
+def progress(filename, size, sent):
+    short=filename
+    for i in range(2):
+        short = os.path.dirname(short)
+    if short != '':
+        filename = os.path.relpath(filename, short)
+
+    print("\rDownloading file {} ({}/{})...          ".format(filename, convert_si(sent), convert_si(size)), end=" ")
 
 ######################################################################################################################################
 ######################################################################################################################################
@@ -761,7 +796,7 @@ class SCPException(Exception):
 
 def main(args):
 
-    global INTERRUPTED
+    global INTERRUPTED, progress
 
     try:
 
@@ -794,7 +829,7 @@ def main(args):
             ssh.connect(ssh_url, username=args.ssh_user, password=getpass.getpass(prompt))
 
         # Create the SCP client to get the files
-        scp = SCPClient(ssh.get_transport())
+        scp = SCPClient(ssh.get_transport(), progress=progress)
 
         # Get the directories where to look for the files to download
         dirs = get_dirs(ssh, LOCATION_KEYS, args.config, args.extra_dirs)
