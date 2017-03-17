@@ -46,12 +46,24 @@ MP_NAMESPACE="http://mediapackage.opencastproject.org"
 # Name of the query parameter to specify the series ID
 QUERY_PARAM_SERIES_ID = "sid"
 
-# Handle keyboard interrupts gracefully
-def signal_handler(signal, frame):
-    print('\nInterrupted by user.\n')
-    sys.exit(0)
+# Boolean value to handle keyboard interruptions gracefully
+INTERRUPTED = False
 
-signal.signal(signal.SIGINT, signal_handler)
+# Handle keyboard interrupts gracefully
+def sigint_handler(signal, frame):
+    global INTERRUPTED
+    if INTERRUPTED:
+        interrupted()
+    else:
+        INTERRUPTED = True
+        print('\b\bFinishing the current download before interrupting. Press Crtl-C again to exit immediately...', end=" ")
+        sys.stdout.flush()
+
+signal.signal(signal.SIGINT, sigint_handler)
+
+def interrupted():
+    print("\b\b\nInterrupted by user!\n")
+    sys.exit(1)
 
 
 def curl(server, endpoint, path_params={}, query_params={}, post_params=[], user="", password="", write_to = None, urlencode=True, timeout=None):
@@ -195,6 +207,11 @@ def get_relative_path_from_url(url):
 
 def download_path(scp, path, download_dir, dirs):
 
+    global INTERRUPTED
+
+    if INTERRUPTED:
+        interrupted()
+
     # Check the extension
     ext = urlpath.splitext(path)[1]
 
@@ -223,6 +240,7 @@ def download_path(scp, path, download_dir, dirs):
             raise
 
     print("Downloading file {}...".format(path), end=" ")
+    sys.stdout.flush()
     # Try to find the relative path in one of the directories read in the configuration
     for root in dirs:
         try:
@@ -233,6 +251,9 @@ def download_path(scp, path, download_dir, dirs):
 
             # File correctly downloaded
             print("Done!")
+
+            if INTERRUPTED:
+                interrupted()
 
             # If this is a SMIL file, try and download its contents
             if ext is not None and ext == ".smil":
@@ -740,6 +761,8 @@ class SCPException(Exception):
 
 def main(args):
 
+    global INTERRUPTED
+
     try:
 
         # Process server URL
@@ -790,11 +813,15 @@ def main(args):
 
         # For every mediapackage in the results...
         for mp in document.iter('{{{}}}mediapackage'.format(MP_NAMESPACE)):
+            if INTERRUPTED:
+                interrupted()
             mp_title = mp.find('{{{}}}title'.format(MP_NAMESPACE)).text.replace("/", "_")
             mp_dir = get_unique_path(os.path.join(args.download_dir, mp_title))
 
             # Iterate through the tracks in this mediapackage
             for track in mp.iter('{{{}}}track'.format(MP_NAMESPACE)):
+                if INTERRUPTED:
+                    interrupted()
                 flavor = track.get("type")
                 if not args.flavors or flavor in args.flavors:
                     # Get this track's URL
