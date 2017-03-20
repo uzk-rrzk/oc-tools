@@ -324,7 +324,7 @@ def progress(filename, size, sent):
     if short != '':
         filename = os.path.relpath(filename, short)
 
-    print("\rDownloading file {} ({}/{})...          ".format(filename, convert_si(sent), convert_si(size)), end=" ")
+    print("\rDownloading file {} ({:.0f}% of {})...".format(filename, 100 if size == 0 else float(sent*100)/size, convert_si(size)), end=" ")
 
 ######################################################################################################################################
 ######################################################################################################################################
