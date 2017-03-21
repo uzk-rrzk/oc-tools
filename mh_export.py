@@ -287,7 +287,7 @@ def get_unique_path(path):
     """
     If the path already exists, add a suffix. Return the first non-existing path found
     """
-    i = 1
+    i = 0
     end_path = path
 
     while os.path.exists(end_path):
@@ -853,19 +853,24 @@ def main(args):
 
         document = etree.fromstring(cousa)
 
+        print()
+
         # For every mediapackage in the results...
+        mp = None
         for mp in document.iter('{{{0}}}mediapackage'.format(MP_NAMESPACE)):
             if INTERRUPTED:
                 interrupted()
             mp_title = mp.find('{{{0}}}title'.format(MP_NAMESPACE)).text.replace("/", "_")
             mp_dir = get_unique_path(os.path.join(args.download_dir, mp_title))
 
+            matching_tracks = [ track for track in mp.iter('{{{0}}}track'.format(MP_NAMESPACE)) if not args.flavors or track.get("type") in args.flavors ]
+
             # Iterate through the tracks in this mediapackage
-            for track in mp.iter('{{{0}}}track'.format(MP_NAMESPACE)):
-                if INTERRUPTED:
-                    interrupted()
-                flavor = track.get("type")
-                if not args.flavors or flavor in args.flavors:
+            if matching_tracks:
+                for track in matching_tracks:
+                    if INTERRUPTED:
+                        interrupted()
+
                     # Get this track's URL
                     track_url = track.find('{{{0}}}url'.format(MP_NAMESPACE)).text
 
@@ -873,6 +878,13 @@ def main(args):
                     rel_path = get_relative_path_from_url(track_url)
 
                     download_path(scp, rel_path, mp_dir, dirs)
+
+                print()
+            else:
+                print("No matching tracks found in mediapackage '{0}': {1}\n".format(mp.get("id"), mp_title), file=sys.stderr)
+
+        if mp is None:
+            print("The search returned no mediapackages for the series '{0}".format(args.series_id))
 
         if DELETE_SMILS:
             for smil in smils_to_delete:
