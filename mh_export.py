@@ -50,6 +50,10 @@ QUERY_PARAM_SERIES_ID = "sid"
 # Boolean value to handle keyboard interruptions gracefully
 INTERRUPTED = False
 
+# Smils to delete
+smils_to_delete = set()
+DELETE_SMILS = True
+
 # Handle keyboard interrupts gracefully
 def sigint_handler(signal, frame):
     global INTERRUPTED
@@ -208,7 +212,7 @@ def get_relative_path_from_url(url):
 
 def download_path(scp, path, download_dir, dirs):
 
-    global INTERRUPTED
+    global INTERRUPTED, smils_to_delete
 
     if INTERRUPTED:
         interrupted()
@@ -219,6 +223,7 @@ def download_path(scp, path, download_dir, dirs):
     if ext == ".smil":
         # Append the relative path to the local download directory
         local_path = os.path.join(download_dir, path)
+        smils_to_delete.add(local_path)
     else:
         # Remove the two latest directory levels (filename and element ID)
         reduced_path = path
@@ -226,6 +231,10 @@ def download_path(scp, path, download_dir, dirs):
             reduced_path = os.path.dirname(reduced_path)
 
         local_path = os.path.join(download_dir, os.path.relpath(path, reduced_path))
+
+    if os.path.exists(local_path):
+        print("Skipping the download of already-existing path: {0}".format(local_path))
+        return
 
     try:
         # Attempt to create the local directories
@@ -263,8 +272,6 @@ def download_path(scp, path, download_dir, dirs):
                 for xml_element in smil.iter("video"):
                     download_path(scp, get_relative_path(xml_element.get("src")), download_dir, dirs)
 
-                # Remove the SMIL file after processing
-                os.remove(local_path)
                 print("Finished downloading media files in the SMIL file '{0}'".format(path))
 
             # We assume the first correct download is the only one possible, so we break
@@ -278,7 +285,7 @@ def download_path(scp, path, download_dir, dirs):
 
 def get_unique_path(path):
     """
-    Create the directory indicated by path. If it already exists, add a suffix. Return the path of the created directory
+    If the path already exists, add a suffix. Return the first non-existing path found
     """
     i = 1
     end_path = path
@@ -866,6 +873,13 @@ def main(args):
                     rel_path = get_relative_path_from_url(track_url)
 
                     download_path(scp, rel_path, mp_dir, dirs)
+
+        if DELETE_SMILS:
+            for smil in smils_to_delete:
+                try:
+                    os.remove(smil)
+                except Exception as e:
+                    print("Received exception {0} while deleting path '{1}': {2}".format(e.__class__.__name__, smil, e))
 
     except pycurl.error as err:
         print("ERROR: Could not get the list of published mediapackages in the series '{0}': {1}".format(args.series_id, err),
