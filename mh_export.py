@@ -108,13 +108,13 @@ def curl(server, endpoint, path_params={}, query_params={}, post_params=[], user
         status_code = c.getinfo(pycurl.HTTP_CODE)
 
         if status_code != 200:
-            raise IOError('cURL error in {}, HTTP status code {}'.format(urlparse.urlunparse(url), status_code))
+            raise IOError('cURL error in {0}, HTTP status code {1}'.format(urlparse.urlunparse(url), status_code))
 
         if write_to is None:
             return b.getvalue()
 
     except Exception as e:
-        #print("An exception has occurred: {}, {}".format(type(e).__name__, e), file=sys.stderr)
+        #print("An exception has occurred: {0}, {1}".format(type(e).__name__, e), file=sys.stderr)
         raise
     finally:
         c.close()
@@ -129,21 +129,21 @@ def get_dirs(client, keys, conf_file, extra_dirs):
     dirs = set()
     for key in keys:
         chan = client.get_transport().open_session()
-        chan.exec_command("grep '^{}' '{}'".format(re.escape(key), conf_file))
+        chan.exec_command("grep '^{0}' '{1}'".format(re.escape(key), conf_file))
 
         if chan.recv_exit_status() == 0:
             # Found the key. Get the latest occurrence of it
             for line in chan.makefile().readlines():
                 pass
-            value = re.sub('^\s*{}\s*='.format(key), "", line).strip()
+            value = re.sub('^\s*{0}\s*='.format(key), "", line).strip()
 
             if value:
                 dirs.add(value)
             else:
-                print("WARNING: '{}' property is empty".format(key), file=sys.stderr)
+                print("WARNING: '{0}' property is empty".format(key), file=sys.stderr)
         else:
             # An error has occurred
-            raise RuntimeError("ERROR: Fetching the distribution directories returned error code {}: {}".format(chan.recv_exit_status(), chan.makefile_stderr().read()))
+            raise RuntimeError("ERROR: Fetching the distribution directories returned error code {0}: {1}".format(chan.recv_exit_status(), chan.makefile_stderr().read()))
 
     if extra_dirs:
         for d in extra_dirs:
@@ -173,7 +173,7 @@ def get_relative_path(path):
         if ext == "":
             clean_path = clean_path + '.' + tag
         elif ext != '.' + tag:
-            print("WARNING: Found conflicting tag in path '{}'. Ignoring the tag '{}'".format(path, tag),
+            print("WARNING: Found conflicting tag in path '{0}'. Ignoring the tag '{1}'".format(path, tag),
                   file = sys.stderr)
     else:
         clean_path = path
@@ -181,7 +181,7 @@ def get_relative_path(path):
     # Get the path extension
     ext = urlpath.splitext(clean_path)[1]
     if ext == "":
-        print("WARNING: Found URL without extension: {}".format(url))
+        print("WARNING: Found URL without extension: {0}".format(url))
 
     # Extract the download server "mountpoint"
     # Matterhorn resource URLs in distributed mediapackage take the form:
@@ -234,7 +234,7 @@ def download_path(scp, path, download_dir, dirs):
         if e.errno == errno.EEXIST:
             if os.path.dirname(local_path) != download_dir:
                 # The directory already exists. Assume this file have already been downloaded
-                print("WARN: Tried to create an already-existing directory: '{}'.\nSkipping download...".format(os.path.dirname(local_path)), file=sys.stderr)
+                print("WARN: Tried to create an already-existing directory: '{0}'.\nSkipping download...".format(os.path.dirname(local_path)), file=sys.stderr)
                 return
         else:
             # Raise the exception in any other case
@@ -265,7 +265,7 @@ def download_path(scp, path, download_dir, dirs):
 
                 # Remove the SMIL file after processing
                 os.remove(local_path)
-                print("Finished downloading media files in the SMIL file '{}'".format(path))
+                print("Finished downloading media files in the SMIL file '{0}'".format(path))
 
             # We assume the first correct download is the only one possible, so we break
             break
@@ -273,7 +273,7 @@ def download_path(scp, path, download_dir, dirs):
             # No problem. The file may not exist in that directory. Ignore.
             pass
     else:
-        print("The file '{}' could not be found in the configured locations".format(path), file=sys.stderr)
+        print("The file '{0}' could not be found in the configured locations".format(path), file=sys.stderr)
 
 
 def get_unique_path(path):
@@ -285,7 +285,7 @@ def get_unique_path(path):
 
     while os.path.exists(end_path):
         i += 1
-        end_path = path + "({})".format(i)
+        end_path = path + "({0})".format(i)
 
     return end_path
 
@@ -313,9 +313,9 @@ def convert_si(number):
             reduced = number
 
     if float(reduced).is_integer():
-        return "{} {}{}B".format(reduced, suffix, "i" if index else "")
+        return "{0} {1}{2}B".format(reduced, suffix, "i" if index else "")
     else:
-        return "{:.2f} {}{}B".format(reduced, suffix, "i" if index else "")
+        return "{0:.2f} {1}{2}B".format(reduced, suffix, "i" if index else "")
 
 def progress(filename, size, sent):
     short=filename
@@ -324,7 +324,7 @@ def progress(filename, size, sent):
     if short != '':
         filename = os.path.relpath(filename, short)
 
-    print("\rDownloading file {} ({:.0f}% of {})...".format(filename, 100 if size == 0 else float(sent*100)/size, convert_si(size)), end=" ")
+    print("\rDownloading file {0} ({1:.0f}% of {2})...".format(filename, 100 if size == 0 else float(sent*100)/size, convert_si(size)), end=" ")
 
 ######################################################################################################################################
 ######################################################################################################################################
@@ -825,7 +825,7 @@ def main(args):
             ssh.connect(ssh_url, username=args.ssh_user)
         except paramiko.SSHException:
             # If that fails, request the password to log in
-            prompt = "Enter the SSH password for user '{}' at {}: ".format(args.ssh_user if args.ssh_user else getpass.getuser(), ssh_url)
+            prompt = "Enter the SSH password for user '{0}' at {1}: ".format(args.ssh_user if args.ssh_user else getpass.getuser(), ssh_url)
             ssh.connect(ssh_url, username=args.ssh_user, password=getpass.getpass(prompt))
 
         # Create the SCP client to get the files
@@ -847,20 +847,20 @@ def main(args):
         document = etree.fromstring(cousa)
 
         # For every mediapackage in the results...
-        for mp in document.iter('{{{}}}mediapackage'.format(MP_NAMESPACE)):
+        for mp in document.iter('{{{0}}}mediapackage'.format(MP_NAMESPACE)):
             if INTERRUPTED:
                 interrupted()
-            mp_title = mp.find('{{{}}}title'.format(MP_NAMESPACE)).text.replace("/", "_")
+            mp_title = mp.find('{{{0}}}title'.format(MP_NAMESPACE)).text.replace("/", "_")
             mp_dir = get_unique_path(os.path.join(args.download_dir, mp_title))
 
             # Iterate through the tracks in this mediapackage
-            for track in mp.iter('{{{}}}track'.format(MP_NAMESPACE)):
+            for track in mp.iter('{{{0}}}track'.format(MP_NAMESPACE)):
                 if INTERRUPTED:
                     interrupted()
                 flavor = track.get("type")
                 if not args.flavors or flavor in args.flavors:
                     # Get this track's URL
-                    track_url = track.find('{{{}}}url'.format(MP_NAMESPACE)).text
+                    track_url = track.find('{{{0}}}url'.format(MP_NAMESPACE)).text
 
                     # Get the relative path of the resource in the remote server
                     rel_path = get_relative_path_from_url(track_url)
@@ -868,15 +868,15 @@ def main(args):
                     download_path(scp, rel_path, mp_dir, dirs)
 
     except pycurl.error as err:
-        print("ERROR: Could not get the list of published mediapackages in the series '{}': {}".format(args.series_id, err),
+        print("ERROR: Could not get the list of published mediapackages in the series '{0}': {1}".format(args.series_id, err),
               file=sys.stderr)
         return 1
     except gaierror as err:
-        print("ERROR: Could not establish an SSH connection with '{}': {}".format(ssh_url, err),
+        print("ERROR: Could not establish an SSH connection with '{0}': {1}".format(ssh_url, err),
               file=sys.stderr)
         return 1
     except Exception as exc:
-        print("ERROR ({}): {}".format(type(exc).__name__, exc), file=sys.stderr)
+        print("ERROR ({0}): {1}".format(type(exc).__name__, exc), file=sys.stderr)
         return 1
 
 # Custom action to check the directory provided as a parameter
@@ -889,11 +889,11 @@ class checkdir(argparse.Action):
             # If the path exists, and it's a directory, check if it's empty
             if os.path.isdir(values):
                 if os.listdir(values):
-                    raise argparse.ArgumentError(self, "The directory '{}' is not empty.".format(values))
+                    raise argparse.ArgumentError(self, "The directory '{0}' is not empty.".format(values))
             elif os.path.exists(values):
-                raise argparse.ArgumentError(self, "'{}' already exists and is not a directory".format(values))
+                raise argparse.ArgumentError(self, "'{0}' already exists and is not a directory".format(values))
             else:
-                raise argparse.ArgumentError(self, "Unable to create directory '{}'. Please check whether the path is valid and the script has permission to create it".format(values))
+                raise argparse.ArgumentError(self, "Unable to create directory '{0}'. Please check whether the path is valid and the script has permission to create it".format(values))
 
         setattr(namespace, self.dest, values)
 
@@ -909,10 +909,10 @@ if __name__ == '__main__':
     parser.add_argument('download_dir', action=checkdir, help='The destination directory name. It must not exist or be empty')
     parser.add_argument('-s', '--ssh_url', help='The SSH-reachable server URL, if the public URL does not allow it')
     parser.add_argument('-u', '--ssh_user', help='The SSH user to connect to the server')
-    parser.add_argument('-c', '--config', default=DEFAULT_CONF_FILE, help='Absolute path of the Matterhorn configuration file in the remote server. (Default: ''{}'')'
+    parser.add_argument('-c', '--config', default=DEFAULT_CONF_FILE, help='Absolute path of the Matterhorn configuration file in the remote server. (Default: ''{0}'')'
                         .format(DEFAULT_CONF_FILE))
     parser.add_argument('-e', '--endpoint', default=DEFAULT_SEARCH_ENDPOINT,
-                        help='Endpoint, relative to the server URL, that should return the mediapackages belonging to the provided series. (Default: ''{}'')'
+                        help='Endpoint, relative to the server URL, that should return the mediapackages belonging to the provided series. (Default: ''{0}'')'
                         .format(DEFAULT_SEARCH_ENDPOINT))
     parser.add_argument('-U', '--digest_user', help='User to authenticate with the Matterhorn endpoint in the server')
     parser.add_argument('-d', '--directory', action="append", dest="extra_dirs",
