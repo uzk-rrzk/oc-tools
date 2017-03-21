@@ -48,7 +48,7 @@ MP_NAMESPACE="http://mediapackage.opencastproject.org"
 QUERY_PARAM_SERIES_ID = "sid"
 
 # Boolean value to handle keyboard interruptions gracefully
-INTERRUPTED = False
+INTERRUPTED = True
 
 # Smils to delete
 smils_to_delete = set()
@@ -845,13 +845,16 @@ def main(args):
         if not args.digest_user:
             setattr(args, "digest_user", raw_input("Enter the digest authentication user: "))
 
-        cousa = curl(search_url,
-                     args.endpoint,
-                     query_params={ QUERY_PARAM_SERIES_ID: args.series_id },
-                     user=args.digest_user,
-                     password=getpass.getpass("Enter the digest authentication password: "))
+        mp_list_str = curl(search_url,
+                           args.endpoint,
+                           query_params={ QUERY_PARAM_SERIES_ID: args.series_id },
+                           user=args.digest_user,
+                           password=getpass.getpass("Enter the digest authentication password: "))
 
-        document = etree.fromstring(cousa)
+        document = etree.fromstring(mp_list_str)
+
+        # Do not interrupt the program immediately after a keyboard interrupt
+        INTERRUPTED = False
 
         print()
 
