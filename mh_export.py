@@ -144,7 +144,7 @@ def get_dirs(client, keys, conf_file, extra_dirs):
             if value:
                 dirs.add(value)
             else:
-                print("WARNING: '{0}' property is empty".format(key), file=sys.stderr)
+                print(u"WARNING: '{0}' property is empty".format(key), file=sys.stderr)
         else:
             # An error has occurred
             raise RuntimeError("ERROR: Fetching the distribution directories returned error code {0}: {1}".format(chan.recv_exit_status(), chan.makefile_stderr().read()))
@@ -177,7 +177,7 @@ def get_relative_path(path):
         if ext == "":
             clean_path = clean_path + '.' + tag
         elif ext != '.' + tag:
-            print("WARNING: Found conflicting tag in path '{0}'. Ignoring the tag '{1}'".format(path, tag),
+            print(u"WARNING: Found conflicting tag in path '{0}'. Ignoring the tag '{1}'".format(path, tag),
                   file = sys.stderr)
     else:
         clean_path = path
@@ -185,7 +185,7 @@ def get_relative_path(path):
     # Get the path extension
     ext = urlpath.splitext(clean_path)[1]
     if ext == "":
-        print("WARNING: Found URL without extension: {0}".format(url))
+        print(u"WARNING: Found URL without extension: {0}".format(url))
 
     # Extract the download server "mountpoint"
     # Matterhorn resource URLs in distributed mediapackage take the form:
@@ -233,7 +233,7 @@ def download_path(scp, path, download_dir, dirs):
         local_path = os.path.join(download_dir, os.path.relpath(path, reduced_path))
 
     if os.path.exists(local_path):
-        print("Skipping the download of already-existing path: {0}".format(local_path))
+        print(u"Skipping the download of already-existing path: {0}".format(local_path))
         return
 
     try:
@@ -243,7 +243,7 @@ def download_path(scp, path, download_dir, dirs):
         if e.errno == errno.EEXIST:
             if os.path.dirname(local_path) != download_dir:
                 # The directory already exists. Assume this file have already been downloaded
-                print("WARN: Tried to create an already-existing directory: '{0}'.\nSkipping download...".format(os.path.dirname(local_path)), file=sys.stderr)
+                print(u"WARN: Tried to create an already-existing directory: '{0}'.\nSkipping download...".format(os.path.dirname(local_path)), file=sys.stderr)
                 return
         else:
             # Raise the exception in any other case
@@ -265,14 +265,14 @@ def download_path(scp, path, download_dir, dirs):
 
             # If this is a SMIL file, try and download its contents
             if ext is not None and ext == ".smil":
-                print("This was a SMIL file. We proceed to download the files inside it.")
+                print(u"This was a SMIL file. We proceed to download the files inside it.")
                 with open(local_path, "r+") as f:
                     smil = etree.parse(f)
 
                 for xml_element in smil.iter("video"):
                     download_path(scp, get_relative_path(xml_element.get("src")), download_dir, dirs)
 
-                print("Finished downloading media files in the SMIL file '{0}'".format(path))
+                print(u"Finished downloading media files in the SMIL file '{0}'".format(path))
 
             # We assume the first correct download is the only one possible, so we break
             break
@@ -280,7 +280,7 @@ def download_path(scp, path, download_dir, dirs):
             # No problem. The file may not exist in that directory. Ignore.
             pass
     else:
-        print("The file '{0}' could not be found in the configured locations".format(path), file=sys.stderr)
+        print(u"The file '{0}' could not be found in the configured locations".format(path), file=sys.stderr)
 
 
 def get_unique_path(path):
@@ -331,7 +331,7 @@ def progress(filename, size, sent):
     if short != '':
         filename = os.path.relpath(filename, short)
 
-    print("\rDownloading file {0} ({1:.0f}% of {2})...".format(filename, 100 if size == 0 else float(sent*100)/size, convert_si(size)), end=" ")
+    print(u"\rDownloading file {0} ({1:.0f}% of {2})...".format(filename, 100 if size == 0 else float(sent*100)/size, convert_si(size)), end=" ")
 
 ######################################################################################################################################
 ######################################################################################################################################
@@ -884,28 +884,28 @@ def main(args):
 
                 print()
             else:
-                print("No matching tracks found in mediapackage '{0}': {1}\n".format(mp.get("id"), mp_title), file=sys.stderr)
+                print(u"No matching tracks found in mediapackage '{0}': {1}\n".format(mp.get("id"), mp_title), file=sys.stderr)
 
         if mp is None:
-            print("The search returned no mediapackages for the series '{0}".format(args.series_id))
+            print(u"The search returned no mediapackages for the series '{0}".format(args.series_id))
 
         if DELETE_SMILS:
             for smil in smils_to_delete:
                 try:
                     os.remove(smil)
                 except Exception as e:
-                    print("Received exception {0} while deleting path '{1}': {2}".format(e.__class__.__name__, smil, e))
+                    print(u"Received exception {0} while deleting path '{1}': {2}".format(e.__class__.__name__, smil, e))
 
     except pycurl.error as err:
-        print("ERROR: Could not get the list of published mediapackages in the series '{0}': {1}".format(args.series_id, err),
+        print(u"ERROR: Could not get the list of published mediapackages in the series '{0}': {1}".format(args.series_id, err),
               file=sys.stderr)
         return 1
     except gaierror as err:
-        print("ERROR: Could not establish an SSH connection with '{0}': {1}".format(ssh_url, err),
+        print(u"ERROR: Could not establish an SSH connection with '{0}': {1}".format(ssh_url, err),
               file=sys.stderr)
         return 1
     except Exception as exc:
-        print("ERROR ({0}): {1}".format(type(exc).__name__, exc), file=sys.stderr)
+        print(u"ERROR ({0}): {1}".format(type(exc).__name__, exc), file=sys.stderr)
         return 1
 
 # Custom action to check the directory provided as a parameter
