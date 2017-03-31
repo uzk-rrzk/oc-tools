@@ -858,6 +858,9 @@ def main(args):
 
         print()
 
+        if args.tags is not None:
+            args.tags = set(args.tags)
+
         # For every mediapackage in the results...
         mp = None
         for mp in document.iter('{{{0}}}mediapackage'.format(MP_NAMESPACE)):
@@ -866,7 +869,9 @@ def main(args):
             mp_title = mp.find('{{{0}}}title'.format(MP_NAMESPACE)).text.replace("/", "_")
             mp_dir = get_unique_path(os.path.join(args.download_dir, mp_title))
 
-            matching_tracks = [ track for track in mp.iter('{{{0}}}track'.format(MP_NAMESPACE)) if not args.flavors or track.get("type") in args.flavors ]
+            matching_tracks = [ track for track in mp.iter('{{{0}}}track'.format(MP_NAMESPACE))
+                                if (not args.flavors or track.get("type") in args.flavors) and
+                                (not args.tags or args.tags.intersection([ tag.text for tag in track.iterfind('.//{{{0}}}tag'.format(MP_NAMESPACE))]))]
 
             # Iterate through the tracks in this mediapackage
             if matching_tracks:
@@ -950,7 +955,10 @@ if __name__ == '__main__':
                         will always be inspected by default')
     parser.add_argument('-f', '--flavor', action="append", dest="flavors",
                         help='Download only the elements with the indicated flavor. It can be specified several times, in order to download\n\
-                        elements with more than one flavor')
+                        elements with different flavors')
+    parser.add_argument('-t', '--tag', action="append", dest="tags",
+                        help='Download only the elements with the indicated tag. It can be specified several times, in order to download\n\
+                        elements with different tags or restrict the number of elements matched by the \'--flavor\' parameter')
 
 #    print(parser.parse_args())
 #    exit(0)
