@@ -4,22 +4,12 @@
 from __future__ import print_function
 
 import sys
-
 import requests
 from requests.auth import HTTPDigestAuth
 from requests.exceptions import ConnectionError
 import urlparse
-import urllib
 import argparse
-import os
-import posixpath as urlpath
-import re
 import getpass
-import signal
-import errno
-import math
-
-from StringIO import StringIO
 from lxml import etree
 
 
@@ -48,27 +38,6 @@ DEFAULT_PAGE_SIZE = 50
 
 # Name of the query parameter to specify the series ID
 QUERY_ARCH_MP_ID = "id"
-
-# Boolean value to handle keyboard interruptions gracefully
-INTERRUPTED = True
-
-
-# Handle keyboard interrupts gracefully
-def sigint_handler(signal, frame):
-    global INTERRUPTED
-    if INTERRUPTED:
-        interrupted()
-    else:
-        INTERRUPTED = True
-        print('\n\nFinishing the current download before interrupting. \
-        Press Crtl-C again to exit immediately.\n')
-        sys.stdout.flush()
-
-signal.signal(signal.SIGINT, sigint_handler)
-
-def interrupted():
-    print("\nInterrupted by user!\n")
-    sys.exit(1)
 
 
 class OpencastDigestAuth(HTTPDigestAuth):
