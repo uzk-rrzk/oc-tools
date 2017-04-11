@@ -271,7 +271,7 @@ def main(args):
         print("Please make sure you provided the correct URL and that you are connected to the internet.", file=sys.stderr, end="\n\n")
         return 1
     except Exception as e:
-        print(u"\nERROR ({0}): {1}".format(type(exc).__name__, exc), file=sys.stderr)
+        print(u"\nERROR ({0}): {1}".format(type(e).__name__, e), file=sys.stderr)
         return 1
     
 
