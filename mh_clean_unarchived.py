@@ -99,7 +99,7 @@ def main(args):
         query_params[QUERY_WF_PAGE_OFFSET] = 0
         query_params[QUERY_WF_COMPACT] = True
         # Just the first time, to get the total amount of WFs
-        query_params[QUERY_WF_PAGE_SIZE] = 0
+        query_params[QUERY_WF_PAGE_SIZE] = 1
     
         # Get the total number of workflows
         r = requests.get(wf_get_url,params=query_params,auth=auth)
