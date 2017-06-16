@@ -215,7 +215,6 @@ if __name__ == '__main__':
     # Argument parser
     parser = argparse.ArgumentParser(description="Delete workflows based on their state")
 
-    # We are only interested in file names, but this way the parser makes sure those files exist
     parser.add_argument('workflow_url', help='The URL of the server running the workflow service')
     parser.add_argument('states', nargs='+', type=lower_str, choices=WF_VALID_STATES, help='A list of space-separated workflow states that shall be deleted')
     parser.add_argument('-n', '--not_really', action="store_true", help='Do not delete anything, but show what would be done if this option were not provided')
