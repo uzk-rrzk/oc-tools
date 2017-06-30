@@ -1,0 +1,5 @@
+# /etc/cron.d/migration-archive.cron: crontab entry to migrate archived Mediapackages per series
+
+
+
+*/2 * * * *   root	/usr/bin/python /mnt/opencast3/migration/migrate_series.py -i @/mnt/opencast3/migration/serieslist.txt archive >> /mnt/opencast3/migration/cron-archive.log 2>&1 
