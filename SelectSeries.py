@@ -97,11 +97,11 @@ def write_selected_series_to_file(selected_series, titles, output_file):
         for key, value in selected_series.iteritems():
             if value.get():
                 series_file.write(u"{0} : {1}\n".format(
-                    key, titles[key]))
+                    key, titles[key]['title']))
 
     print "{0} Created!".format(output_file)
 
-def draw_ui(series_dict, output_file, provided_series = None):
+def draw_ui(series_dict, output_file, provided_series=None):
     """ Create UI to select Series for ingest """
 
     selected_series = dict()
@@ -117,16 +117,16 @@ def draw_ui(series_dict, output_file, provided_series = None):
                        text="Create Selected Series File",
                        command=lambda:
                        write_selected_series_to_file(selected_series, series_dict, output_file))
-    button.grid(sticky=tk.N,row=0)
+    button.grid(sticky=tk.N, row=0)
 
     button = tk.Button(right_frame, text="Select all", command=lambda: _mark_all(True))
-    button.grid(sticky=tk.N,row=1)
+    button.grid(sticky=tk.N, row=1)
 
     button = tk.Button(right_frame, text="Unselect all", command=lambda: _mark_all(False))
-    button.grid(sticky=tk.N,row=2)
+    button.grid(sticky=tk.N, row=2)
 
     button = tk.Button(right_frame, text="Quit!", fg='red', command=root.quit)
-    button.grid(sticky=tk.N,row=3)
+    button.grid(sticky=tk.N, row=3)
 
     label_value = tk.StringVar()
     label = tk.Label(right_frame, textvariable=label_value, fg="green")
@@ -146,7 +146,7 @@ def draw_ui(series_dict, output_file, provided_series = None):
         if provided_series:
             selected_series[key].set(key in provided_series)
         check_button = tk.Checkbutton(left_frame.interior,
-                                      text=u"{1}".format(key, value),
+                                      text=value['title'],
                                       variable=selected_series[key],
                                       command=_update_count)
         check_button.grid(sticky=tk.NW)
@@ -161,8 +161,8 @@ def main(args):
     # Check whether the output file exist
     provided_series = []
     try:
-        with io.open(args.output_file, 'r+', encoding='utf8', errors='replace') as f:
-            provided_series = [ x.strip().split()[0] for x in f ]
+        with io.open(args.output_file, 'r+', encoding='utf8', errors='replace') as series_file:
+            provided_series = [x.strip().split()[0] for x in series_file]
     except IOError as ioe:
         if ioe.errno == errno.ENOENT:
             # This is fine, the file may not exist
@@ -211,10 +211,15 @@ def main(args):
 
         if series_result['catalogs']:
             for series in series_result['catalogs']:
-                series_title = series[DC_NS]['title'][0]['value']
                 series_id = series[DC_NS]['identifier'][0]['value']
-                # Save id+title in an dictonary
-                series_dict[series_id] = series_title
+                # Save metadata in a dictionary
+                series_dict[series_id] = {}
+                for key, value in series[DC_NS].iteritems():
+                    try:
+                        series_dict[series_id][key] = value[0]['value']
+                    except (KeyError, IndexError):
+                        # That's fine, we ignore this key
+                        pass
 
         query_params[QUERY_PAGE] += 1
 
