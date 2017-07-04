@@ -31,10 +31,10 @@ class VerticalScrolledFrame(tk.Frame):
     * Use the 'interior' attribute to place widgets inside the scrollable frame
     * Construct and pack/place/grid normally
     * This frame only allows vertical scrolling
-    
+
     """
     def __init__(self, parent, *args, **kw):
-        tk.Frame.__init__(self, parent, *args, **kw)            
+        tk.Frame.__init__(self, parent, *args, **kw)
 
         # create a canvas object and a vertical scrollbar for scrolling it
         vscrollbar = tk.Scrollbar(self, orient=tk.VERTICAL)
@@ -70,7 +70,7 @@ class VerticalScrolledFrame(tk.Frame):
                 canvas.itemconfigure(interior_id, width=canvas.winfo_width())
         canvas.bind('<Configure>', _configure_canvas)
 
-    
+
 # Default series endpoint
 SERIES_ENDPOINT = "/series/series.json"
 
@@ -91,19 +91,19 @@ PAGE_SIZE = 100
 
 def write_selected_series_to_file(selected_series, titles, output_file):
     """ Write the list of selected series to the corresponding file """
-    
+
     series_file = None
     with io.open(output_file, 'w+', encoding='utf8') as series_file:
         for key, value in selected_series.iteritems():
             if value.get():
-                series_file.write(u"{0} - {1}\n".format(
+                series_file.write(u"{0} : {1}\n".format(
                     key, titles[key]))
 
     print "{0} Created!".format(output_file)
 
 def draw_ui(series_dict, output_file, provided_series = None):
     """ Create UI to select Series for ingest """
-    
+
     selected_series = dict()
 
     root = tk.Tk()
@@ -118,7 +118,7 @@ def draw_ui(series_dict, output_file, provided_series = None):
                        command=lambda:
                        write_selected_series_to_file(selected_series, series_dict, output_file))
     button.grid(sticky=tk.N,row=0)
-    
+
     button = tk.Button(right_frame, text="Select all", command=lambda: _mark_all(True))
     button.grid(sticky=tk.N,row=1)
 
@@ -136,11 +136,11 @@ def draw_ui(series_dict, output_file, provided_series = None):
         for value in selected_series.values():
             value.set(boolean)
         _update_count()
-    
+
     def _update_count():
         label_value.set('{0} selected'.format(
             len([x for x in selected_series if selected_series[x].get()])))
-    
+
     for key, value in series_dict.iteritems():
         selected_series[key] = tk.BooleanVar()
         if provided_series:
@@ -150,7 +150,7 @@ def draw_ui(series_dict, output_file, provided_series = None):
                                       variable=selected_series[key],
                                       command=_update_count)
         check_button.grid(sticky=tk.NW)
-        
+
     _update_count()
 
     root.mainloop()
@@ -177,8 +177,8 @@ def main(args):
                 raise
 
             return ioe.errno
-        
-        
+
+
     # Set digest login parameters
     if not args.digest_user:
         setattr(args, "digest_user", raw_input("Enter the digest authentication user: "))
@@ -187,7 +187,7 @@ def main(args):
 
     # Digest login
     auth = OpencastDigestAuth(args.digest_user, args.digest_pass)
-    
+
     series_dict = {}
 
     # Prepare series request
@@ -199,7 +199,7 @@ def main(args):
     # Get series count
     series_result = requests.get(series_url, auth=auth, params=query_params)
     series_result.raise_for_status()
-    
+
     total_series = int(series_result.json()[KEY_TOTAL])
     print "{0} series found".format(total_series)
 
@@ -208,7 +208,7 @@ def main(args):
         series_result = requests.get(series_url, auth=auth, params=query_params)
         series_result.raise_for_status()
         series_result = series_result.json()
-        
+
         if series_result['catalogs']:
             for series in series_result['catalogs']:
                 series_title = series[DC_NS]['title'][0]['value']
@@ -218,13 +218,6 @@ def main(args):
 
         query_params[QUERY_PAGE] += 1
 
-    # Save all Series to file
-    if args.all_series is not None:
-        with io.open(args.all_series, 'w', encoding='utf8') as series_file:
-            for series_id, series_title in series_dict.iteritems():
-                series_file.write(
-                    "{1}: {0}\n".format(series_title.encode('utf8'), series_id.encode('utf8')))
-
     # Draw the UI
     draw_ui(series_dict, args.output_file, provided_series)
 
@@ -233,7 +226,7 @@ if __name__ == '__main__':
 
     #draw_ui(None, None)
     #sys.exit()
-    
+
     # Argument parser
     parser = argparse.ArgumentParser(description="Create a list of series to migrate")
 
@@ -245,10 +238,6 @@ if __name__ == '__main__':
         'output_file',
         help='The file to write the output to.'
         'If the file exists, the list displayed will match the contents of the file'
-    )
-    parser.add_argument(
-        '-a', '--all-series',
-        help='If given, copy the whole series list to this file.'
     )
     parser.add_argument(
         '-i', '--ignore',
@@ -266,4 +255,3 @@ if __name__ == '__main__':
     )
 
     sys.exit(main(parser.parse_args()))
-
