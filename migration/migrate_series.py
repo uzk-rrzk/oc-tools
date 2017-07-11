@@ -2,11 +2,12 @@
 """
 Utilities to migrate all the episodes in an Opencast/Matterhorn series into another system
 """
-from __future__ import print_function
 from collections import OrderedDict
 
 import argparse
 import errno
+import logging
+import logging.config
 import os
 import sys
 
@@ -20,6 +21,11 @@ import migrate_archived
 import migrate_published
 
 SERVICES = ('archive', 'publish')
+DEFAULT_SERVICE = 'archive'
+
+# Configure logging
+logging.config.dictConfig(config.log_conf)
+LOGGER = logging.getLogger()
 
 def create_series(series_xml, series_acl, server, auth):
     """ Creates a new series with the given ACL """
@@ -101,10 +107,8 @@ def edit_acl(acl, default_roles=None, transform_roles=None):
                 # Use the role as-is
                 acl_add_elements(new_acl, role, actions)
         except TypeError as type_err:
-            print(
-                "[ERROR] Setting ACL for role '{}' found an illegal type: {}".format(
-                    role, type_err),
-                file=sys.stderr)
+            LOGGER.error("Setting ACL for role '%s' found an illegal type: %s",
+                         role, type_err)
 
     # Append default values
     try:
@@ -113,16 +117,12 @@ def edit_acl(acl, default_roles=None, transform_roles=None):
                 try:
                     acl_add_elements(new_acl, role, actions)
                 except TypeError as type_err:
-                    print(
-                        "[ERROR] Setting ACL for default role '{}'"
-                        "found an illegal type: {}".format(role, type_err),
-                        file=sys.stderr)
+                    LOGGER.error("Setting ACL for default role '%s'"
+                                 "found an illegal type: %s", role, type_err)
     except AttributeError as attr_err:
         # default_roles is not a dict. Complain only if it is not None (it's the default)
         if default_roles is not None:
-            print(
-                "[WARN] Could not set default ACL roles: {}".format(attr_err),
-                file=sys.stderr)
+            LOGGER.warn("Could not set default ACL roles: %s", attr_err)
 
     return etree.tostring(new_acl, encoding='utf-8', xml_declaration=True, pretty_print=True)
 
@@ -164,17 +164,15 @@ def acl_add_elements(acl_xml, role, actions):
         try:
             for action, allow in actions.iteritems():
                 # Opencast does not support deny ACLs, i.e. those where "allow" is false
-                # Even though these are ignored, they print cause a WARNING to be printed
+                # Even though these are ignored, they cause a WARNING to be logged
                 if allow.lower() == 'true':
                     acl_add_element(acl_xml, role, action, allow)
                 else:
-                    print("[WARN] Ignoring non-allow rule for role '{}' and action '{}': '{}'"
-                          .format(role, action, allow))
+                    LOGGER.warn("Ignoring non-allow rule for role '%s' and action '%s': '%s'",
+                                role, action, allow)
         except AttributeError as attr_err:
             # 'actions' is not a dict
-            print(
-                "[ERROR] Could not set access control element for role '{}': {}".format(
-                    role, attr_err), file=sys.stderr)
+            LOGGER.error("Could not set access control element for role '%s': %s", role, attr_err)
 
 
 def acl_add_element(acl_xml, role, action, allow):
@@ -207,7 +205,8 @@ def __migrate_mediapackages(series_id, url, auth, migrate, query_series_id, iter
     Migrate mediapackages from a series according to the given parameters.
     Returns true if all the episodes in the series are ingested, false otherwise
     """
-    print("MIGRATE_MEDIAPACKAGES")
+
+    LOGGER.debug("Start __migrate_mediapackages")
 
     # Get mediapackages from the episode service
     query = {
@@ -228,6 +227,7 @@ def __migrate_mediapackages(series_id, url, auth, migrate, query_series_id, iter
     # Now get the results
     query[config.query_page_size] = config.page_size
 
+    failed = False
     while query[config.query_page] < total:
         # Get a page of results
         resp = requests.get(
@@ -253,13 +253,14 @@ def __migrate_mediapackages(series_id, url, auth, migrate, query_series_id, iter
                 continue
             except Exception as exc:
                 # Log this exception, but keep going.
-                print("[ERROR] {0}".format(exc), file=sys.stderr)
+                LOGGER.error(exc)
+                failed = True
                 continue
             finally:
                 # We must increase this count no matter what exceptions we get
                 query[config.query_page] += 1
 
-    return True
+    return not failed
 
 
 def edit_series(series):
@@ -275,7 +276,7 @@ def edit_series(series):
     return etree.tostring(series_xml, encoding='utf-8', xml_declaration=True, pretty_print=True)
 
 
-def migrate_single_series(series_id, service, iterate):
+def migrate_single_series(series_id, service=DEFAULT_SERVICE, iterate=True):
     """ Migrate all the elements in the given series """
 
     # Check if series exists in the system we migrate from
@@ -285,9 +286,8 @@ def migrate_single_series(series_id, service, iterate):
 
     # Check if series exists in the system to migrate...
     if not series_exists(series_id, config.dst_admin, config.dst_auth):
-        print(
-            "[DEBUG] Series '{}' does not exist in the destination system. Creating it...".format(
-                series_id))
+        LOGGER.info("Series '%s' does not exist in the destination system. Creating it...",
+                    series_id)
         try:
             # Get series in the source system
             src_series = edit_series(get_series(series_id, config.src_admin, config.src_auth))
@@ -316,7 +316,7 @@ def migrate_single_series(series_id, service, iterate):
             else:
                 raise
 
-    if not service or str(service).lower() == 'archive':
+    if str(service).lower() == 'archive':
         ingested_file = os.path.join(config.archive_copy_dir, series_id, config.ingested_filename)
         migrate_url = get_url(config.src_admin, config.ep_src_archive_list)
         migrate_method = migrate_archived.migrate_archived
@@ -328,9 +328,9 @@ def migrate_single_series(series_id, service, iterate):
         query_key = config.query_search_series_id
     else:
         raise ValueError(
-            "[ERROR] Incorrect service parameter: {0}".format(service), file=sys.stderr)
+            "Incorrect service parameter: {0}".format(service), file=sys.stderr)
 
-    print("[DEBUG] Attempting to migrate series {0}".format(series_id))
+    LOGGER.debug("Attempting to migrate series %s", series_id)
 
     if os.path.isfile(ingested_file):
         raise IngestedException("Series {} is already marked as ingested".format(series_id))
@@ -358,7 +358,7 @@ def migrate_single_series(series_id, service, iterate):
                 raise
 
 
-def migrate_multiple_series(series_file, service=None, iterate=True):
+def migrate_multiple_series(series_file, service=DEFAULT_SERVICE, iterate=True):
     """ Migrate all series listed in the provided file  """
 
     with open(series_file, 'r+') as series_file:
@@ -374,12 +374,12 @@ def migrate_multiple_series(series_file, service=None, iterate=True):
                     break
             except IngestedException as exc:
                 # This is perfectly fine. We just ignore already ingested series and keep going
-                print("[DEBUG] Already ingested: '{}'".format(exc))
+                LOGGER.debug("Already ingested: %s", exc)
             except NotFoundException as exc:
-                print("[ERROR]({0}) {1}".format(type(exc).__name__, exc), file=sys.stderr)
+                LOGGER.error("Not found: %s", exc)
 
 
-def __migrate_series(series_param, service=None, iterate=True):
+def __migrate_series(series_param, service, iterate=True):
     """ Process a request from the command line """
     if series_param.startswith('@'):
         migrate_multiple_series(series_param.lstrip('@'), service, iterate)
@@ -402,6 +402,7 @@ def __parse_args():
     arg_parser.add_argument(
         'service',
         nargs='?',
+        default=DEFAULT_SERVICE,
         choices=SERVICES,
         help='Specify which service should be populated'
     )
@@ -417,10 +418,9 @@ def __parse_args():
 
 
 if __name__ == '__main__':
-
     try:
         __migrate_series(**vars(__parse_args()))
         sys.exit(0)
     except Exception as exc:
-        print("[ERROR]({0}) {1}".format(type(exc).__name__, exc), file=sys.stderr)
+        LOGGER.error("(%s) %s", type(exc).__name__, exc)
         sys.exit(1)

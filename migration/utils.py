@@ -6,6 +6,7 @@ from requests.auth import HTTPDigestAuth
 from urlparse import urljoin
 import config
 
+
 class OpencastDigestAuth(HTTPDigestAuth):
     """
     Implement a digest authentication including the headers required by Opencast
@@ -20,6 +21,7 @@ class OpencastDigestAuth(HTTPDigestAuth):
         r.headers['X-Opencast-Matterhorn-Authorization'] = 'true'
 
         return r
+
 
 def get_url(server, path, **params):
     """ Construct a URL with the provided arguments """
