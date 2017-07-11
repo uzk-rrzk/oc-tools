@@ -2,10 +2,10 @@
 
 """Script to merge mediapackages that are archived at a certain Opencast/Matterhorn system"""
 
-from __future__ import print_function
-
 import errno
 import filecmp
+import logging
+import logging.config
 import os
 import posixpath as urlpath
 import shutil
@@ -17,6 +17,9 @@ from lxml import etree
 import config
 import utils
 
+# Configure logging
+logging.config.dictConfig(config.log_conf)
+LOGGER = logging.getLogger()
 
 def get_src_and_dst_paths(url_path, dest_root):
     """
@@ -59,7 +62,7 @@ def get_src_and_dst_paths(url_path, dest_root):
     # Make sure it exists
     if not os.path.isfile(src_path):
         raise utils.MissingElementException(
-            "The path {0} corresponding to the URL path {1} could not be found in the archive"
+            "The path '{0}' corresponding to the URL path '{1}' could not be found in the archive"
             .format(src_path, url_path))
 
     # Return the source and destination paths
@@ -95,9 +98,8 @@ def copy_element_and_fix_url(url, root_dst_path, copied_paths):
         except OSError as os_err:
             if os_err.errno == errno.EEXIST:
                 # The directory already exists
-                print(
-                    u"WARN: Tried to create an already-existing directory: '{0}'"
-                    .format(os.path.dirname(dst_path)), file=sys.stderr)
+                LOGGER.warn("Tried to create an already-existing directory: '%s'",
+                            os.path.dirname(dst_path))
             else:
                 # Raise the exception in any other case
                 raise
@@ -187,11 +189,9 @@ def migrate_archived(mp_id):
 
         # Filter out elements based on their flavor
         if element.get(config.mp_flavor_attr) in config.filter_flavors:
-            print(
-                "[WARN] Removing element '{0}' because of its flavor: '{1}'".format(
-                    element.get(config.mp_elem_id_attr),
-                    element.get(config.mp_flavor_attr)),
-                file=sys.stderr)
+            LOGGER.warn("Removing element '%s' because of its flavor: '%s'",
+                        element.get(config.mp_elem_id_attr),
+                        element.get(config.mp_flavor_attr))
             # Delete element. We can invoke "getparent" twice, because in well-formed
             # mediapackages, all URLs are contained within elements, and all elements
             # are contained in categories ('media', 'metadata', etc.)
@@ -200,11 +200,9 @@ def migrate_archived(mp_id):
 
         # Filter out elements based on their XML tag
         if element.tag in config.filter_tags:
-            print(
-                "[WARN] Removing element '{0}' because of its XML tag: '{1}'".format(
-                    element.get(config.mp_elem_id_attr),
-                    element.tag),
-                file=sys.stderr)
+            LOGGER.warn("Removing element '%s' because of its XML tag: '%s'",
+                        element.get(config.mp_elem_id_attr),
+                        element.tag)
             # Delete element. We can invoke "getparent" twice, because in well-formed
             # mediapackages, all URLs are contained within elements, and all elements
             # are contained in categories ('media', 'metadata', etc.)
@@ -215,7 +213,7 @@ def migrate_archived(mp_id):
             copy_element_and_fix_url(url, mp_dir, copied_paths)
         except utils.DuplicateElementException as dee:
             # Log the situation
-            print("[WARN] {0}".format(dee), file=sys.stderr)
+            LOGGER.warn(dee)
             # Remove the duplicate element from the XML
             element.getparent().remove(element)
             continue
@@ -229,7 +227,9 @@ def migrate_archived(mp_id):
     zip_file = os.path.join(mp_dir, mp_id + '.zip')
     cwd = os.getcwd()
     os.chdir(mp_dir)
+    LOGGER.debug("Creating ZIP file '%s'", zip_file)
     subprocess.check_call(['zip', '-0ru', os.path.basename(zip_file)] + os.listdir('.'))
+    LOGGER.debug("ZIP file created: '%s'", zip_file)
     os.chdir(cwd)
 
     # Copy the mediapackage in the inbox
@@ -243,7 +243,7 @@ def migrate_archived(mp_id):
     with open(ingested_file, 'w+'):
         pass
 
-    print("Mediapackage {0} for ARCHIVE successfully ingested".format(mp_xml.get('id')))
+    LOGGER.info("Mediapackage successfully ingested: '%s'", mp_id)
 
     # Delete ingested files, if so configured
     if config.delete_ingested:
@@ -259,5 +259,5 @@ if __name__ == '__main__':
         migrate_archived(*sys.argv[1:])
         sys.exit(0)
     except Exception as exc:
-        print("[ERROR]({0}) {1}".format(type(exc).__name__, exc), file=sys.stderr)
+        LOGGER.error("(%s) %s", type(exc).__name__, exc)
         sys.exit(1)

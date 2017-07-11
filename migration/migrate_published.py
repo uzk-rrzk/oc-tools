@@ -2,11 +2,11 @@
 
 """Script to merge mediapackages that are published at a certain Opencast/Matterhorn system"""
 
-from __future__ import print_function
-
 from copy import deepcopy
 import errno
 import filecmp
+import logging
+import logging.config
 import mimetypes
 import os
 import posixpath as urlpath
@@ -19,6 +19,11 @@ from migrate_archived import get_src_and_dst_paths
 
 import config
 import utils
+
+
+# Configure logging
+logging.config.dictConfig(config.log_conf)
+LOGGER = logging.getLogger()
 
 
 def get_relative_path(url_path):
@@ -53,9 +58,8 @@ def get_relative_path(url_path):
             ext = '.' + tag
             clean_path = clean_path + ext
         elif ext != '.' + tag:
-            print(
-                u"WARNING: Found conflicting tag in path '{0}'. \
-                Ignoring the tag '{1}'".format(clean_path, tag), file=sys.stderr)
+            LOGGER.warn("Found conflicting tag in path '%s'. Ignoring the tag '%s'",
+                        clean_path, tag)
     else:
         # Normal URL, without streaming "tags"
         clean_path = url_path
@@ -63,7 +67,7 @@ def get_relative_path(url_path):
         ext = urlpath.splitext(clean_path)[1]
 
     if ext == "":
-        print(u"WARNING: Found URL path without extension: {0}".format(url_path))
+        LOGGER.warn("Found URL path without extension: '%s'", url_path)
 
     # Extract the download server "mountpoint"
     # Matterhorn resource URLs in distributed mediapackage take the form:
@@ -156,9 +160,8 @@ def copy_element(url_path, root_dst_path, copied_paths):
         except OSError as os_err:
             if os_err.errno == errno.EEXIST:
                 # The directory already exists
-                print(
-                    u"WARN: Tried to create an already-existing directory: '{0}'"
-                    .format(os.path.dirname(dst_path)), file=sys.stderr)
+                LOGGER.warn("Tried to create an already-existing directory: '%s'",
+                            os.path.dirname(dst_path))
             else:
                 # Raise the exception in any other case
                 raise
@@ -216,8 +219,8 @@ def copy_files_from_smil(smil_element, root_dst_path, copied_paths, quality_tags
             tags_xml = new_xml.find(config.tags_xml_tag)
             for tag in [tag for tag in new_xml.iter(config.tag_xml_tag)
                         if tag.text in quality_tags]:
-                print("[DEBUG] Removing quality tag from SMIL file '{}': '{}'"
-                      .format(smil_path, tag.text))
+                LOGGER.debug("Removing quality tag from SMIL file '%s': '%s'",
+                             smil_path, tag.text)
                 tags_xml.remove(tag)
 
             # Add quality tag, if the list is not empty
@@ -340,11 +343,10 @@ def migrate_published(mp_id):
 
         # Filter out elements based on their flavor
         if element.get(config.mp_flavor_attr) in config.filter_flavors:
-            print(
-                "[WARN] Removing element '{0}' because of its flavor: '{1}'".format(
-                    element.get(config.mp_elem_id_attr),
-                    element.get(config.mp_flavor_attr)),
-                file=sys.stderr)
+            LOGGER.warn(
+                "Removing element '%s' because of its flavor: '%s'",
+                element.get(config.mp_elem_id_attr),
+                element.get(config.mp_flavor_attr))
             # Delete element. We can invoke "getparent" twice, because in well-formed
             # mediapackages, all URLs are contained within elements, and all elements
             # are contained in categories ('media', 'metadata', etc.)
@@ -353,11 +355,9 @@ def migrate_published(mp_id):
 
         # Filter out elements based on their XML tag
         if element.tag in config.filter_tags:
-            print(
-                "[WARN] Removing element '{0}' because of its XML tag: '{1}'".format(
-                    element.get(config.mp_elem_id_attr),
-                    element.tag),
-                file=sys.stderr)
+            LOGGER.warn("Removing element '%s' because of its XML tag: '%s'",
+                        element.get(config.mp_elem_id_attr),
+                        element.tag)
             # Delete element. We can invoke "getparent" twice, because in well-formed
             # mediapackages, all URLs are contained within elements, and all elements
             # are contained in categories ('media', 'metadata', etc.)
@@ -377,12 +377,8 @@ def migrate_published(mp_id):
             url.text = os.path.relpath(dst_path, mp_dir)
         except utils.DuplicateElementException as dee:
             # Log the situation
-            print(
-                "[WARN] Found duplicate path in mediapackage '{0}', element '{1}': {2}".format(
-                    mp_id,
-                    element.get(config.mp_elem_id_attr),
-                    dee),
-                file=sys.stderr)
+            LOGGER.warn("Found duplicate path in mediapackage '%s', element '%s': %s",
+                        mp_id, element.get(config.mp_elem_id_attr), dee)
             # Remove the duplicate element from the XML
             element.getparent().remove(element)
             continue
@@ -392,7 +388,7 @@ def migrate_published(mp_id):
                 # This is a duplicate of an already-processed SMIL file. Mark it as such
                 smil_paths[dst_path][1].append(element)
             else:
-                print("Processing SMIL file at {0}".format(dst_path))
+                LOGGER.info("Processing SMIL file at '%s'", dst_path)
                 smil_paths[dst_path] = ([], [])
 
                 # Process SMIL file, get newly generated elements and store them in the type
@@ -417,7 +413,7 @@ def migrate_published(mp_id):
             media_xml.append(element)
 
         # Remove the SMIL file from the disk
-        print("Borrando {0}: {1}".format(dst_path, os.remove(dst_path)))
+        LOGGER.info("Borrando '%s': %s", dst_path, os.remove(dst_path))
 
     # Serialize the manifest
     with open(os.path.join(mp_dir, config.manifest_filename), "w+") as manifest_file:
@@ -442,7 +438,7 @@ def migrate_published(mp_id):
     with open(ingested_file, 'w+'):
         pass
 
-    print("Mediapackage {0} for SEARCH successfully ingested".format(mp_xml.get('id')))
+    LOGGER.info("Mediapackage successfully ingested: '%s'", mp_id)
 
     # Delete ingested files, if so configured
     if config.delete_ingested:
@@ -458,5 +454,5 @@ if __name__ == '__main__':
         migrate_published(*sys.argv[1:])
         sys.exit(0)
     except Exception as exc:
-        print("[ERROR]({0}) {1}".format(type(exc).__name__, exc), file=sys.stderr)
+        LOGGER.error("(%s) %s", type(exc).__name__, exc)
         sys.exit(1)

@@ -106,7 +106,7 @@ def acl_transform_roles(role, actions):
     return role, actions
 
 # Dublincore namespace
-dc_namesp = "http://purl.org/dc/terms/" 
+dc_namesp = "http://purl.org/dc/terms/"
 
 # Series extra parameters
 series_extra_metadata = {
@@ -123,6 +123,42 @@ archive_dir = "/mnt/opencast/storage/archive/mh_default_org"
 # The directories where the source system's distribution services (download, streaming, etc.)
 # store their files
 search_dirs = [ "/mnt/opencast/storage/downloads", "/mnt/opencast/storage/streaming" ]
+
+#####################
+# Log configuration #
+#####################
+
+log_conf = {
+    'root': {
+        'handlers': ['console', 'logfile'],
+        'level': 'DEBUG',
+        'propagate': False
+    },
+    'handlers': {
+        'console': {
+            'level':'DEBUG',
+            'class':'logging.StreamHandler',
+            'formatter': 'simple'
+        },
+        'logfile': {
+            'level': 'DEBUG',
+            'class': 'logging.FileHandler',
+            'formatter': 'verbose',
+            'filename': 'migration.log'
+        },
+    },
+    'formatters': {
+        'verbose': {
+            'format': '%(asctime)s | %(levelname)-8s | (%(module)s) - %(message)s'
+        },
+        'simple': {
+            'format': '| %(levelname)s | (%(module)s) - %(message)s'
+        }
+    },
+    'version': 1,
+    'disable_existing_loggers': True
+}
+
 
 #################
 # XML arguments #

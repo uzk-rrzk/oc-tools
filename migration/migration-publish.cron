@@ -2,4 +2,4 @@
 
 
 
-*/2 * * * *   root	/usr/bin/python /mnt/opencast3/migration/migrate_series.py -i @/mnt/opencast3/migration/serieslist.txt publish >> /mnt/opencast3/migration/cron-publish.log 2>&1 
+*/2 * * * *   root	/usr/bin/python /mnt/opencast3/migration/migrate_series.py -i @/mnt/opencast3/migration/serieslist.txt publish
