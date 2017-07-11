@@ -15,7 +15,7 @@ import requests
 from requests.exceptions import HTTPError
 
 import config
-from utils import get_url, IngestedException, NotFoundException
+from utils import get_url, IngestedException, NotFoundException, AlreadyFailedException
 import migrate_archived
 import migrate_published
 
@@ -44,9 +44,19 @@ def get_series(series_id, server, auth):
     return resp.content
 
 
-def get_series_acl(series_id, server, auth, default_roles=None, transform_roles=None):
+def get_series_acl(series_id, server, auth):
+    """ Reads the ACL of the series with ID 'series_id' in XML format """
+    resp = requests.get(
+        get_url(server, config.ep_series_acl, sid=series_id),
+        auth=auth
+    )
+    resp.raise_for_status()
+    return resp.content
+
+
+def edit_acl(acl, default_roles=None, transform_roles=None):
     """
-    Reads the ACL of the series with ID 'series_id' in XML format
+    Edit a series ACL provided as an XML string, returning the modified ACL in the same format.
 
     If 'transform_roles' is not None, it should be a function, accepting a role as a string
     argument and a dictionary with the actions for that role. The format is just like that of
@@ -56,7 +66,7 @@ def get_series_acl(series_id, server, auth, default_roles=None, transform_roles=
     entirely.
 
     If 'default_roles' is not None, the roles defined here will be added to the ACL
-    **ONLY IF THEY DO NOT PRESENT THERE YET**.
+    **ONLY IF THEY ARE NOT PRESENT THERE YET**.
     'default_roles' MUST be a dictionary where:
         - Keys are strings representing the default roles.
         - Values are also dictionaries describing the permitted actions for this role, where:
@@ -71,14 +81,9 @@ def get_series_acl(series_id, server, auth, default_roles=None, transform_roles=
     any other data types in the 'default_roles' dictionary will likely rise a TypeError
     The roles in 'default_roles' are never converted using the 'transform_roles' function.
     """
-    resp = requests.get(
-        get_url(server, config.ep_series_acl, sid=series_id),
-        auth=auth
-    )
-    resp.raise_for_status()
 
     # Process the received acl
-    acl_xml = etree.fromstring(resp.content)
+    acl_xml = etree.fromstring(acl)
 
     # Process the roles as as a dictionary tree:
     # - 1st level: dictionary with roles as keys and values a dict of the second level
@@ -163,8 +168,8 @@ def acl_add_elements(acl_xml, role, actions):
                 if allow.lower() == 'true':
                     acl_add_element(acl_xml, role, action, allow)
                 else:
-                    print("[WARN] Ignoring non-allow rule for role '{}' and action '{}': '{}'".format(
-                        role, action, allow))
+                    print("[WARN] Ignoring non-allow rule for role '{}' and action '{}': '{}'"
+                          .format(role, action, allow))
         except AttributeError as attr_err:
             # 'actions' is not a dict
             print(
@@ -202,6 +207,7 @@ def __migrate_mediapackages(series_id, url, auth, migrate, query_series_id, iter
     Migrate mediapackages from a series according to the given parameters.
     Returns true if all the episodes in the series are ingested, false otherwise
     """
+    print("MIGRATE_MEDIAPACKAGES")
 
     # Get mediapackages from the episode service
     query = {
@@ -221,7 +227,6 @@ def __migrate_mediapackages(series_id, url, auth, migrate, query_series_id, iter
 
     # Now get the results
     query[config.query_page_size] = config.page_size
-    failure_found = False
 
     while query[config.query_page] < total:
         # Get a page of results
@@ -240,22 +245,34 @@ def __migrate_mediapackages(series_id, url, auth, migrate, query_series_id, iter
                 migrate(mp_xml)
                 if not iterate:
                     return False
-            except IngestedException:
+            except (IngestedException, AlreadyFailedException):
                 # We treat this exception separately because we do not want to log it
-                # every time we get it. It is fine for a MP to be already ingested
+                # every time we get it. It is fine for a MP to be already ingested, and any
+                # failed ingestion is already logged the first time it happens for a
+                # certain mediapackage
                 continue
             except Exception as exc:
                 # Log this exception, but keep going.
                 print("[ERROR] {0}".format(exc), file=sys.stderr)
-                failure_found = True
                 continue
             finally:
                 # We must increase this count no matter what exceptions we get
                 query[config.query_page] += 1
 
+    return True
 
-    # If not failure was found, the series is completely ingested (thus return True)
-    return not failure_found
+
+def edit_series(series):
+    """
+    Receive an XML representation of a series and add default metadata values
+    """
+    series_xml = etree.fromstring(series)
+
+    for key, value in config.series_extra_metadata.iteritems():
+        element_xml = etree.SubElement(series_xml, key)
+        element_xml.text = value
+
+    return etree.tostring(series_xml, encoding='utf-8', xml_declaration=True, pretty_print=True)
 
 
 def migrate_single_series(series_id, service, iterate):
@@ -268,16 +285,22 @@ def migrate_single_series(series_id, service, iterate):
 
     # Check if series exists in the system to migrate...
     if not series_exists(series_id, config.dst_admin, config.dst_auth):
+        print(
+            "[DEBUG] Series '{}' does not exist in the destination system. Creating it...".format(
+                series_id))
         try:
             # Get series in the source system
-            src_series = get_series(series_id, config.src_admin, config.src_auth)
+            src_series = edit_series(get_series(series_id, config.src_admin, config.src_auth))
+
             # Get series ACL in the source system
-            src_series_acl = get_series_acl(
-                series_id,
-                config.src_admin,
-                config.src_auth,
+            src_series_acl = edit_acl(
+                get_series_acl(
+                    series_id,
+                    config.src_admin,
+                    config.src_auth),
                 config.acl_default_roles,
-                config.acl_transform_roles)
+                config.acl_transform_roles
+            )
             # Create series in the destination system
             create_series(
                 src_series,
@@ -307,6 +330,7 @@ def migrate_single_series(series_id, service, iterate):
         raise ValueError(
             "[ERROR] Incorrect service parameter: {0}".format(service), file=sys.stderr)
 
+    print("[DEBUG] Attempting to migrate series {0}".format(series_id))
 
     if os.path.isfile(ingested_file):
         raise IngestedException("Series {} is already marked as ingested".format(series_id))
@@ -348,9 +372,9 @@ def migrate_multiple_series(series_file, service=None, iterate=True):
                 migrate_single_series(series_id, service, iterate)
                 if not iterate:
                     break
-            except IngestedException:
+            except IngestedException as exc:
                 # This is perfectly fine. We just ignore already ingested series and keep going
-                pass
+                print("[DEBUG] Already ingested: '{}'".format(exc))
             except NotFoundException as exc:
                 print("[ERROR]({0}) {1}".format(type(exc).__name__, exc), file=sys.stderr)
 
@@ -363,7 +387,7 @@ def __migrate_series(series_param, service=None, iterate=True):
         migrate_single_series(series_param, service, iterate)
 
 
-if __name__ == '__main__':
+def __parse_args():
 
     # Argument parser
     arg_parser = argparse.ArgumentParser(description="Ingest all the mediapackages in a series")
@@ -388,9 +412,14 @@ if __name__ == '__main__':
         help='Process one mediapackage at a time, then return. '
         'This is useful to run this script using a cronjob, as a method to throttle the ingestions.'
     )
+    return arg_parser.parse_args()
+
+
+
+if __name__ == '__main__':
 
     try:
-        __migrate_series(**vars(arg_parser.parse_args()))
+        __migrate_series(**vars(__parse_args()))
         sys.exit(0)
     except Exception as exc:
         print("[ERROR]({0}) {1}".format(type(exc).__name__, exc), file=sys.stderr)

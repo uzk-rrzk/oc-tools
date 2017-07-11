@@ -23,8 +23,11 @@ delete_ingested = False
 # Name of the manifest file
 manifest_filename = "manifest.xml"
 
-# File used as flag to mark whether a certain MP was ingested
+# File used as flag to mark whether a certain MP or series was ingested
 ingested_filename = ".ingested"
+
+# File used as flag to mark whether a certain MP failed to ingest or a series have ingest failures
+failed_filename = ".failed"
 
 # The mode applied to the created directories
 dir_mode = 0o755
@@ -58,9 +61,9 @@ dst_user =
 dst_pass =
 
 
-#######################
-# Series ACL handling #
-#######################
+###################
+# Series handling #
+###################
 
 # Default roles that all series should have, if not defined in the source system
 # This must be a dictionary of the form:
@@ -102,6 +105,13 @@ def acl_transform_roles(role, actions):
 
     return role, actions
 
+# Dublincore namespace
+dc_namesp = "http://purl.org/dc/terms/" 
+
+# Series extra parameters
+series_extra_metadata = {
+    "{{{0}}}license".format(dc_namesp): "ALLRIGHTS"
+}
 
 ##################################################
 # Locations where the files will be searched for #
@@ -166,11 +176,12 @@ smil_src_attr = 'src'
 # Attributes to be removed in elements created from SMIL files
 smil_filter_attributes = ['transport']
 
-# Element 'tags' to be removed in elements created from SMIL files
-smil_filter_tags = ['360p-quality', '480p-quality', '720p-quality']
+# Suffix of all element tags representing video qualities
+tag_quality_suffix = "-quality"
 
-# Element 'tags' to be added (in order) to elements created from SMIL files
-smil_extra_tags = [['360p-quality'], ['720p-quality']]
+# Function to tell whether or not a certain tag represents a video quality
+def is_quality_tag(tag):
+    return tag.endswith(tag_quality_suffix)
 
 # ACL XML namespace
 acl_namesp = "http://org.opencastproject.security"
