@@ -79,6 +79,13 @@ class IngestedException(Exception):
     """
     pass
 
+class AlreadyFailedException(Exception):
+    """
+    In a mediapackage, indicate that an ingestion was already attempted and failed.
+    In a series, indicate that some of its mediapackages failed to ingest.
+    """
+    pass
+
 class MissingElementException(Exception):
     """
     Indicate when an element does not exist in the path it is supposed to

@@ -148,11 +148,19 @@ def migrate_archived(mp_id):
     else:
         mp_dir = os.path.join(config.archive_copy_dir, mp_id)
 
-    # Make sure this MP was not already ingested
+    # Calculate file flags for ingested and failed mediapackages
     ingested_file = os.path.join(mp_dir, config.ingested_filename)
+    failed_file = os.path.join(mp_dir, config.failed_filename)
+
+    # Make sure this MP was not already ingested
     if os.path.isfile(ingested_file):
         raise utils.IngestedException(
             "Mediapackage {0} was already marked as ingested".format(mp_id))
+
+    # Make sure this MP did not fail
+    if os.path.isfile(failed_file):
+        raise utils.AlreadyFailedException(
+            "Mediapackage {0} was already marked as failed".format(mp_id))
 
     # Check the mediapackage has not already been exported
     try:

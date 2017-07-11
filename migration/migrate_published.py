@@ -15,6 +15,7 @@ import subprocess
 import sys
 import urlparse
 from lxml import etree
+from migrate_archived import get_src_and_dst_paths
 
 import config
 import utils
@@ -92,9 +93,9 @@ def get_source_path(rel_path):
         if os.path.isfile(abs_path):
             # Assume the first match is the right one
             return abs_path
-    else:
-        raise utils.MissingElementException(
-            "Could not find the path {0} among the configured candidates".format(rel_path))
+
+    raise utils.MissingElementException(
+        "Could not find the path {0} among the configured candidates".format(rel_path))
 
 
 def get_destination_path(rel_path, root):
@@ -129,11 +130,16 @@ def copy_element(url_path, root_dst_path, copied_paths):
 
     url_path = get_relative_path(url_path)
 
-    # Source path where to copy this element from
-    src_path = get_source_path(url_path)
+    try:
+        # Source path where to copy this element from
+        src_path = get_source_path(url_path)
 
-    # Destination path where to copy this element
-    dst_path = get_destination_path(url_path, root_dst_path)
+        # Destination path where to copy this element
+        dst_path = get_destination_path(url_path, root_dst_path)
+    except utils.MissingElementException:
+        # Handle the case where archive URLs were published directly in the search index
+        # This is a last resort measure
+        src_path, dst_path = get_src_and_dst_paths(url_path, root_dst_path)
 
     if os.path.exists(dst_path) and dst_path in copied_paths:
         # The element was already copied!
@@ -166,7 +172,7 @@ def copy_element(url_path, root_dst_path, copied_paths):
     return dst_path
 
 
-def copy_files_from_smil(smil_element, root_dst_path, copied_paths):
+def copy_files_from_smil(smil_element, root_dst_path, copied_paths, quality_tags):
     """
     Process SMIL file to copy all the videos contained in the file under the
     'root_dst_path' directory. Generate the XML elements but does not add them to the tree.
@@ -175,6 +181,12 @@ def copy_files_from_smil(smil_element, root_dst_path, copied_paths):
     SMIL file. We assume the element URL is relative to the 'root_dst_path'.
     'copied_paths' is a list of files, relative to 'root_dst_path', which have already been
     copied by this script. It is used to detect duplicates.
+    'quality_tags' is a list of quality tags applied to the videos, sorted from lowest to
+    highest. Because the 'video' tags in the SMIL file are assumed to be sorted also from the
+    lowest to the highest quality, the track generated from the latest video in the SMIL file
+    will receive the highest quality tag in the list, and so on.
+    **ATTENTION**: If the number of qualities in the list does not match the number of videos
+    in the SMIL file, the lower qualities will be discarded.
     """
 
     retval = []
@@ -183,7 +195,11 @@ def copy_files_from_smil(smil_element, root_dst_path, copied_paths):
     smil_path = os.path.join(root_dst_path, smil_element.find(config.url_xml_tag).text)
 
     with open(smil_path, 'r+') as smil_file:
-        for index, video_xml in enumerate(etree.parse(smil_file).iter('video')):
+        for index, video_xml in enumerate(reversed(etree.parse(smil_file).findall('.//video'))):
+            # Break if there are more videos in the SMIL file as qualities
+            # Ignore if the list of quality tags is empty
+            if quality_tags and index >= len(quality_tags):
+                break
 
             # Create a new MP element
             new_xml = deepcopy(smil_element)
@@ -196,17 +212,18 @@ def copy_files_from_smil(smil_element, root_dst_path, copied_paths):
                     att for att in new_xml.attrib if att in config.smil_filter_attributes]:
                 del new_xml.attrib[att]
 
-            # Delete forbidden tags
+            # Delete quality tags
             tags_xml = new_xml.find(config.tags_xml_tag)
             for tag in [tag for tag in new_xml.iter(config.tag_xml_tag)
-                        if tag.text in config.smil_filter_tags]:
-                print("[DEBUG] Removing tag from SMIL file '{}': '{}'".format(smil_path, tag.text))
+                        if tag.text in quality_tags]:
+                print("[DEBUG] Removing quality tag from SMIL file '{}': '{}'"
+                      .format(smil_path, tag.text))
                 tags_xml.remove(tag)
 
-            # Add configured tags
-            for tag in config.smil_extra_tags[index]:
+            # Add quality tag, if the list is not empty
+            if quality_tags:
                 tag_xml = etree.SubElement(tags_xml, config.tag_xml_tag)
-                tag_xml.text = tag
+                tag_xml.text = quality_tags[index]
 
             # Copy element file
             dst_path = copy_element(
@@ -236,6 +253,21 @@ def copy_files_from_smil(smil_element, root_dst_path, copied_paths):
             retval.append(new_xml)
 
     return retval
+
+
+def get_quality_tags(mp_xml, is_quality_tag=config.is_quality_tag):
+    """
+    Return a list of tags indicating qualities.
+    Whether or not a tag represents a quality is determined by the function 'is_quality_tag',
+    which accepts a string representing a tag and returns true if it is a quality tag.
+    """
+    retval = set()
+
+    for tag in mp_xml.iter(config.tag_xml_tag):
+        if is_quality_tag(tag.text):
+            retval.add(tag.text)
+
+    return list(sorted(retval, reverse=True))
 
 
 def migrate_published(mp_id):
@@ -288,6 +320,9 @@ def migrate_published(mp_id):
     except utils.NotFoundException:
         # This is expected
         pass
+
+    # Get all available quality tags, if any
+    quality_tags = get_quality_tags(mp_xml)
 
     # Keep track of duplicate paths or paths copied in a previous, failed run
     copied_paths = dict()
@@ -362,7 +397,7 @@ def migrate_published(mp_id):
 
                 # Process SMIL file, get newly generated elements and store them in the type
                 smil_paths[dst_path][0].extend(
-                    copy_files_from_smil(element, mp_dir, copied_paths))
+                    copy_files_from_smil(element, mp_dir, copied_paths, quality_tags))
 
                 # Add the SMIL element to the list
                 smil_paths[dst_path][1].append(element)
