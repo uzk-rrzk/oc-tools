@@ -55,12 +55,6 @@
       </configurations>
     </operation>
 
-    <operation
-      id="archive"
-      description="Archive publishing information">
-      <configurations/>
-    </operation>
-
     <!-- Clean up workspace -->
     <operation
       id="cleanup"
