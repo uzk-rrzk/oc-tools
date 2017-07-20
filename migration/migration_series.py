@@ -6,9 +6,12 @@ from collections import OrderedDict
 
 import argparse
 import errno
+import filecmp
 import logging
 import logging.config
 import os
+import shutil
+import subprocess
 import sys
 
 from lxml import etree
@@ -16,12 +19,8 @@ import requests
 from requests.exceptions import HTTPError
 
 import config
-from utils import get_url, IngestedException, NotFoundException, AlreadyFailedException
-import migrate_archived
-import migrate_published
 
-SERVICES = ('archive', 'publish')
-DEFAULT_SERVICE = 'archive'
+import migration
 
 # Configure logging
 logging.config.dictConfig(config.log_conf)
@@ -34,7 +33,7 @@ def create_series(series_xml, series_acl, server, auth):
         config.ep_series_post_acl: series_acl
     }
     resp = requests.post(
-        get_url(server, config.ep_series_post),
+        migration.get_url(server, config.ep_series_post),
         data=post_data,
         auth=auth)
     resp.raise_for_status()
@@ -43,7 +42,7 @@ def create_series(series_xml, series_acl, server, auth):
 def get_series(series_id, server, auth):
     """ Reads the series with ID 'series_id' in XML format from the server """
     resp = requests.get(
-        get_url(server, config.ep_series_get, sid=series_id),
+        migration.get_url(server, config.ep_series_get, sid=series_id),
         auth=auth
     )
     resp.raise_for_status()
@@ -53,7 +52,7 @@ def get_series(series_id, server, auth):
 def get_series_acl(series_id, server, auth):
     """ Reads the ACL of the series with ID 'series_id' in XML format """
     resp = requests.get(
-        get_url(server, config.ep_series_acl, sid=series_id),
+        migration.get_url(server, config.ep_series_acl, sid=series_id),
         auth=auth
     )
     resp.raise_for_status()
@@ -97,7 +96,8 @@ def edit_acl(acl, default_roles=None, transform_roles=None):
     acl_dict = acl_parse(acl_xml)
 
     # Generate new ACL
-    new_acl = etree.Element(config.acl_root, nsmap={None: config.acl_namesp})
+    new_acl = etree.Element(
+        migration.XML_ACL_ROOT_TAG, nsmap={None: migration.XML_ACL_NAMESP})
     for role, actions in acl_dict.iteritems():
         try:
             if transform_roles:
@@ -136,10 +136,10 @@ def acl_parse(acl_xml):
     # - 1st level: dictionary with roles as keys and values a dict of the second level
     # - 2nd level: dictionary with actions as keys and actions as value
     acl_dict = OrderedDict()
-    for ace in acl_xml.iterfind(config.acl_element):
-        role = ace.find(config.acl_role).text
-        action = ace.find(config.acl_action).text
-        allow = ace.find(config.acl_allow).text
+    for ace in acl_xml.iterfind(migration.XML_ACL_ELEMENT_TAG):
+        role = ace.find(migration.XML_ACL_ROLE_TAG).text
+        action = ace.find(migration.XML_ACL_ACTION_TAG).text
+        allow = ace.find(migration.XML_ACL_ALLOW_TAG).text
 
         try:
             # Put the action in the dictionary
@@ -183,10 +183,10 @@ def acl_add_element(acl_xml, role, action, allow):
     """
 
     if role is not None:
-        ace = etree.SubElement(acl_xml, config.acl_element)
-        etree.SubElement(ace, config.acl_action).text = action
-        etree.SubElement(ace, config.acl_allow).text = allow
-        etree.SubElement(ace, config.acl_role).text = role
+        ace = etree.SubElement(acl_xml, migration.XML_ACL_ELEMENT_TAG)
+        etree.SubElement(ace, migration.XML_ACL_ACTION_TAG).text = action
+        etree.SubElement(ace, migration.XML_ACL_ALLOW_TAG).text = allow
+        etree.SubElement(ace, migration.XML_ACL_ROLE_TAG).text = role
 
 
 def series_exists(series_id, server, auth):
@@ -200,67 +200,226 @@ def series_exists(series_id, server, auth):
         # Otherwise, raise a exception
         raise
 
-def __migrate_mediapackages(series_id, url, auth, migrate, query_series_id, iterate=False):
+def create_file_flag(path):
+    """
+    Creates a file flag at the given path, creating the necessary directories
+    """
+    try:
+        with open(path, 'w'):
+            pass
+    except IOError as ioe:
+        if ioe.errno == errno.ENOENT:
+            # Handle the case when the series is empty
+            # If so, the directory was not yet created
+            # Any other errors from this point should be raised
+            os.makedirs(os.path.dirname(path), config.dir_mode)
+            with open(path, 'w'):
+                pass
+        else:
+            raise
+
+def create_zip(zip_name, mp_dir, dst_dir=None):
+    """
+    Create ZIP file for the mediapackage stored in the directory 'mp_dir'
+    Return the path to the created file
+    """
+
+    if dst_dir is None:
+        dst_dir = mp_dir
+
+    if os.path.splitext(zip_name)[1] != '.zip':
+        zip_name = zip_name + '.zip'
+
+    zip_file = os.path.join(dst_dir, zip_name)
+    cwd = os.getcwd()
+    try:
+        os.chdir(dst_dir)
+        LOGGER.debug("Creating ZIP file '%s'", zip_file)
+        subprocess.check_call(['zip', '-0ru', '--quiet', zip_name] + os.listdir('.'))
+        LOGGER.debug("ZIP file created: '%s'", zip_file)
+    finally:
+        os.chdir(cwd)
+
+    return zip_file
+
+
+def migrate_mediapackage(mp_xml, root_dir, exporter):
+    """
+    Migrate a single mediapackage into the provided root directory
+    """
+
+    # Get mediapackage ID
+    mp_id = mp_xml.get(migration.XML_MP_ID_ATTR)
+
+    LOGGER.debug("Attempting to migrate mediapackage '%s'", mp_id)
+
+    mp_dir = os.path.join(root_dir, mp_id)
+    if not os.path.exists(mp_dir):
+        os.makedirs(mp_dir, config.dir_mode)
+
+    # Calculate file flags for ingested and failed mediapackages
+    ingested_file = os.path.join(mp_dir, config.ingested_filename)
+    failed_file = os.path.join(mp_dir, config.failed_filename)
+
+    # Make sure this MP was not already ingested
+    if os.path.isfile(ingested_file):
+        raise migration.IngestedException(
+            "Mediapackage '{0}' was already marked as ingested".format(mp_id)
+        )
+
+    # Make sure this MP did not fail
+    if os.path.isfile(failed_file):
+        raise migration.AlreadyFailedException(
+            "Mediapackage '{0}' was already marked as failed".format(mp_id)
+        )
+
+    # Check the mediapackage has not already been exported
+    try:
+        migration.get_unique_mp(
+            mp_id,
+            migration.get_url(config.dst_admin, config.ep_dst_archive_list),
+            config.dst_auth)
+
+        # The MP is already ingested
+        LOGGER.warn(
+            "Mediapackage '%s' is not marked as ingested, "
+            "but is already archived in the destination system", mp_id)
+
+        # Mark this MP as ingested
+        create_file_flag(ingested_file)
+
+        return
+
+    except migration.NotFoundException:
+        # This is expected
+        pass
+
+    try:
+        exporter.export(
+            mp_id,
+            filter_by_flavor=config.filter_flavors,
+            filter_tags=config.remove_tags
+        )
+
+        # Copy files
+        for rel_dst, src in exporter.paths.iteritems():
+            dst = os.path.join(mp_dir, rel_dst)
+            if os.path.exists(dst):
+                if filecmp.cmp(src, dst):
+                    LOGGER.debug("Path '%s' was copied in an earlier run of the script", dst)
+                    continue
+            else:
+                try:
+                    os.makedirs(os.path.dirname(dst), config.dir_mode)
+                except OSError as err:
+                    # Swallow the error if the directory already exists.
+                    # Raise in any other case
+                    if err.errno != errno.EEXIST:
+                        raise
+
+            # Copy the file
+            shutil.copyfile(src, dst)
+
+        # Serialize the manifest
+        with open(os.path.join(mp_dir, config.manifest_filename), "w") as manifest_file:
+            etree.ElementTree(exporter.mediapackage).write(
+                manifest_file, encoding="utf-8", xml_declaration=True, pretty_print=True)
+
+        # Zip the mediapackage
+        zip_file = create_zip(mp_id, mp_dir)
+
+        # Copy the zip file in the inbox
+        if os.path.isdir(config.inbox):
+            shutil.copy(zip_file, config.inbox)
+        else:
+            raise OSError(errno.ENOENT, "The destination inbox does not exist", config.inbox)
+
+        LOGGER.info("Mediapackage successfully ingested: '%s'", mp_id)
+
+        # Mark this MP as ingested
+        create_file_flag(ingested_file)
+
+    except Exception:
+        # Mark the mediapackage as failed
+        create_file_flag(failed_file)
+        raise
+    finally:
+        # Delete ingested files, if so configured
+        if config.delete_ingested:
+            for root, dirs, files in os.walk(mp_dir, topdown=False):
+                for name in files:
+                    full_path = os.path.join(root, name)
+                    if not os.path.exists(full_path):
+                        continue
+                    if os.path.samefile(full_path, ingested_file):
+                        continue
+                    if os.path.samefile(full_path, failed_file):
+                        continue
+                    os.remove(full_path)
+                for name in dirs:
+                    os.rmdir(os.path.join(root, name))
+
+
+
+def migrate_mediapackages(series_id, dst_dir, exporter, iterate=False):
     """
     Migrate mediapackages from a series according to the given parameters.
     Returns true if all the episodes in the series are ingested, false otherwise
     """
+    LOGGER.debug("Attempting to migrate series %s", series_id)
 
-    LOGGER.debug("Start __migrate_mediapackages")
+    series_dir = os.path.join(dst_dir, series_id)
 
-    # Get mediapackages from the episode service
-    query = {
-        query_series_id: series_id,
-        # The size here is 1 only to get the total number of results quickly
-        config.query_page_size: 1,
-        config.query_page: 0
-    }
-    resp = requests.get(
-        url,
-        params=query,
-        auth=auth)
-    resp.raise_for_status()
+    # Check whether this series was already migrated
+    ingested_file = os.path.join(series_dir, config.ingested_filename)
+    failed_file = os.path.join(series_dir, config.failed_filename)
+    if os.path.isfile(ingested_file):
+        raise migration.IngestedException(
+            "Series {} is already marked as ingested".format(series_id))
+    if os.path.isfile(failed_file):
+        raise migration.AlreadyFailedException(
+            "Series {} is already marked as failed".format(series_id))
 
-    mp_list_xml = etree.fromstring(resp.content)
-    total = config.get_total(mp_list_xml)
-
-    # Now get the results
-    query[config.query_page_size] = config.page_size
-
+    mp_list = exporter.get_mediapackages_from_series(series_id)
+    mp_processed = 0
     failed = False
-    while query[config.query_page] < total:
-        # Get a page of results
-        resp = requests.get(
-            url,
-            params=query,
-            auth=auth)
-        resp.raise_for_status()
-
-        # Transform the result to XML
-        mp_list_xml = etree.fromstring(resp.content)
-
+    while mp_list:
         # Iterate through the results
-        for mp_xml in mp_list_xml.iter(config.mp_xml_tag):
+        for mp_xml in mp_list:
             try:
-                migrate(mp_xml)
+                migrate_mediapackage(mp_xml, series_dir, exporter)
                 if not iterate:
-                    return False
-            except (IngestedException, AlreadyFailedException):
-                # We treat this exception separately because we do not want to log it
-                # every time we get it. It is fine for a MP to be already ingested, and any
-                # failed ingestion is already logged the first time it happens for a
-                # certain mediapackage
-                continue
+                    return
+            except migration.IngestedException as ing_exc:
+                # Log as debug and keep going
+                # This means only that the MP was already ingested succesfully
+                LOGGER.debug(ing_exc)
+            except migration.AlreadyFailedException as f_exc:
+                # The MP failed and was marked as such
+                # The failure was already logged, so we log this as debug
+                LOGGER.debug(f_exc)
+                failed = True
             except Exception as exc:
                 # Log this exception, but keep going.
                 LOGGER.error(exc)
                 failed = True
-                continue
-            finally:
-                # We must increase this count no matter what exceptions we get
-                query[config.query_page] += 1
 
-    return not failed
+        # Update counter
+        mp_processed += len(mp_list)
+        # Request a new batch of MP
+        mp_list = exporter.get_mediapackages_from_series(
+            series_id, offset=mp_processed)
+
+    # We reached the end of this series
+    # Mark the series as failed or ingested
+    if failed:
+        LOGGER.info("Marking series %s as FAILED", series_id)
+        flag = failed_file
+    else:
+        LOGGER.info("Marking series %s as INGESTED", series_id)
+        flag = ingested_file
+
+    create_file_flag(flag)
 
 
 def edit_series(series):
@@ -276,12 +435,12 @@ def edit_series(series):
     return etree.tostring(series_xml, encoding='utf-8', xml_declaration=True, pretty_print=True)
 
 
-def migrate_single_series(series_id, service=DEFAULT_SERVICE, iterate=True):
+def migrate_single_series(series_id, dst_dir, exporter, iterate=True):
     """ Migrate all the elements in the given series """
 
     # Check if series exists in the system we migrate from
     if not series_exists(series_id, config.src_admin, config.src_auth):
-        raise NotFoundException(
+        raise migration.NotFoundException(
             "Series {} does not exist in the source system".format(series_id))
 
     # Check if series exists in the system to migrate...
@@ -310,55 +469,16 @@ def migrate_single_series(series_id, service=DEFAULT_SERVICE, iterate=True):
             )
         except HTTPError as herr:
             if herr.response.status_code == 404:
-                raise NotFoundException(
+                raise migration.NotFoundException(
                     "The series '{0}' does not exist in the source system at {1}".format(
                         series_id, config.src_admin))
             else:
                 raise
 
-    if str(service).lower() == 'archive':
-        ingested_file = os.path.join(config.archive_copy_dir, series_id, config.ingested_filename)
-        migrate_url = get_url(config.src_admin, config.ep_src_archive_list)
-        migrate_method = migrate_archived.migrate_archived
-        query_key = config.query_archive_series_id
-    elif str(service).lower() == 'publish':
-        ingested_file = os.path.join(config.search_copy_dir, series_id, config.ingested_filename)
-        migrate_url = get_url(config.src_engage, config.ep_search_list)
-        migrate_method = migrate_published.migrate_published
-        query_key = config.query_search_series_id
-    else:
-        raise ValueError(
-            "Incorrect service parameter: {0}".format(service), file=sys.stderr)
-
-    LOGGER.debug("Attempting to migrate series %s", series_id)
-
-    if os.path.isfile(ingested_file):
-        raise IngestedException("Series {} is already marked as ingested".format(series_id))
-    elif __migrate_mediapackages(
-            series_id,
-            migrate_url,
-            config.src_auth,
-            migrate_method,
-            query_key,
-            iterate):
-
-        # Mark the series as ingested
-        try:
-            with open(ingested_file, 'w+'):
-                pass
-        except IOError as ioe:
-            if ioe.errno == errno.ENOENT:
-                # Handle the case when the series is empty
-                # If so, the directory was not yet created
-                # Any other errors from this point should be raised
-                os.makedirs(os.path.dirname(ingested_file))
-                with open(ingested_file, 'w+'):
-                    pass
-            else:
-                raise
+    migrate_mediapackages(series_id, dst_dir, exporter, iterate)
 
 
-def migrate_multiple_series(series_file, service=DEFAULT_SERVICE, iterate=True):
+def migrate_multiple_series(series_file, dst_dir, exporter, iterate=True):
     """ Migrate all series listed in the provided file  """
 
     with open(series_file, 'r+') as series_file:
@@ -369,22 +489,42 @@ def migrate_multiple_series(series_file, service=DEFAULT_SERVICE, iterate=True):
                 # Comments are ignored
                 continue
             try:
-                migrate_single_series(series_id, service, iterate)
+                migrate_single_series(series_id, dst_dir, exporter, iterate)
                 if not iterate:
                     break
-            except IngestedException as exc:
+            except migration.IngestedException as exc:
                 # This is perfectly fine. We just ignore already ingested series and keep going
                 LOGGER.debug("Already ingested: %s", exc)
-            except NotFoundException as exc:
+            except migration.AlreadyFailedException as exc:
+                # This is perfectly fine. We just ignore series already marked as failed
+                # and keep going
+                LOGGER.debug("Already marked as failed: %s", exc)
+            except migration.NotFoundException as exc:
                 LOGGER.error("Not found: %s", exc)
 
 
-def __migrate_series(series_param, service, iterate=True):
+def __migrate_series(series_param, dst_dir, iterate=True):
     """ Process a request from the command line """
+
+    # TODO configure number of services
+    archive_export = migration.ArchiveServiceExport(
+        config.src_admin,
+        config.src_user, config.src_pass,
+        config.archive_dir,
+        legacy=True
+    )
+    publish_export = migration.PublishServiceExport(
+        config.src_engage,
+        config.src_user, config.src_pass,
+        config.search_dirs,
+        config.archive_dir
+    )
+    exporter = migration.Export(archive_export, publish_export)
+
     if series_param.startswith('@'):
-        migrate_multiple_series(series_param.lstrip('@'), service, iterate)
+        migrate_multiple_series(series_param.lstrip('@'), dst_dir, exporter, iterate)
     else:
-        migrate_single_series(series_param, service, iterate)
+        migrate_single_series(series_param, dst_dir, exporter, iterate)
 
 
 def __parse_args():
@@ -400,11 +540,9 @@ def __parse_args():
         'one per line.'
     )
     arg_parser.add_argument(
-        'service',
-        nargs='?',
-        default=DEFAULT_SERVICE,
-        choices=SERVICES,
-        help='Specify which service should be populated'
+        'dst_dir',
+        help='The path where the files will be exported.'
+        'It will be created if it does not exist.'
     )
     arg_parser.add_argument(
         '-i', '--do_not_iterate',
@@ -421,6 +559,6 @@ if __name__ == '__main__':
     try:
         __migrate_series(**vars(__parse_args()))
         sys.exit(0)
-    except Exception as exc:
+    except migration.MigrationException as exc:
         LOGGER.error("(%s) %s", type(exc).__name__, exc)
         sys.exit(1)
