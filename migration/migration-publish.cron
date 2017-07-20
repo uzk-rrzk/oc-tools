@@ -1,5 +1,0 @@
-# /etc/cron.d/migration-publish.cron: crontab entry to migrate published Mediapackages per series
-
-
-
-*/2 * * * *   root	/usr/bin/python /mnt/opencast3/migration/migrate_series.py -i @/mnt/opencast3/migration/serieslist.txt publish

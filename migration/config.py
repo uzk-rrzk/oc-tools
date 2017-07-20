@@ -1,21 +1,13 @@
 #! /bin/python
 
-from utils import OpencastDigestAuth
+from new_migration import OpencastDigestAuth
 
 #########
 # Paths #
 #########
 
-# Directory where the mediapackage will be temporary copied
-# It should have enough free space to hold them
-search_copy_dir = "/mnt/opencast3/migration/published_mediapackages"
-archive_copy_dir = "/mnt/opencast3/migration/archived_mediapackages"
-
-# Path to the inbox that will trigger the publication of the files published in the source system
-search_inbox = "/mnt/opencast3/storage/migrate-publish-inbox/"
-
-# Path to the inbox that will trigger the archival of the files archived in the source system
-archive_inbox = "/mnt/opencast3/storage/migrate-archive-inbox/"
+# Path to the inbox
+inbox = "/mnt/opencast3/storage/migrate-all-inbox/"
 
 # Whether or not to keep the ingested files after ingestion
 delete_ingested = False
@@ -31,9 +23,6 @@ failed_filename = ".failed"
 
 # The mode applied to the created directories
 dir_mode = 0o755
-
-# Extension for the SMIL files. Should include the initial '.'
-smil_extension = ".smil"
 
 #######################
 # URLs to the servers #
@@ -144,15 +133,15 @@ log_conf = {
             'level': 'DEBUG',
             'class': 'logging.FileHandler',
             'formatter': 'verbose',
-            'filename': 'migration.log'
+            'filename': '/mnt/opencast3/migration/migration.log'
         },
     },
     'formatters': {
         'verbose': {
-            'format': '%(asctime)s | %(levelname)-8s | (%(module)s) - %(message)s'
+            'format': '%(asctime)s | %(levelname)-8s | (%(name)s) - %(message)s'
         },
         'simple': {
-            'format': '| %(levelname)s | (%(module)s) - %(message)s'
+            'format': '| %(levelname)s | (%(name)s) - %(message)s'
         }
     },
     'version': 1,
@@ -164,82 +153,12 @@ log_conf = {
 # XML arguments #
 #################
 
-# Mediapackage namespace
-mp_namesp = "http://mediapackage.opencastproject.org"
 
 # Flavors that should be not ingested
-filter_flavors = [ 'security/xacml+series', 'security/xacml+episode' ]
+filter_flavors = ['security/xacml+series', 'security/xacml+episode']
 
-# XML tags that should not be ingested
-filter_tags = ['{{{0}}}publication'.format(mp_namesp)]
-
-# XML attribute representing the flavor in the MP elements
-mp_flavor_attr = 'type'
-
-# XML attribute representing the ID in the MP elements
-mp_elem_id_attr = 'id'
-
-# Mediapackage XML tag (including Namespace)
-mp_xml_tag = '{{{0}}}mediapackage'.format(mp_namesp)
-
-# URL tag used in mediapackage XML representations (including Namespace)
-url_xml_tag = '{{{0}}}url'.format(mp_namesp)
-
-# XML tag for the 'series' XML element in mediapackage representations (including Namespace)
-series_xml_tag = '{{{0}}}series'.format(mp_namesp)
-
-# XML tag for the 'tags' XML element in mediapackage XML representations (with Namespace)
-tags_xml_tag = '{{{0}}}tags'.format(mp_namesp)
-
-# XML tag for the 'tag' XML element in mediapackage XML representations (with Namespace)
-tag_xml_tag = '{{{0}}}tag'.format(mp_namesp)
-
-# XML tag for the 'media' XML element in the mediapackage XML representations (with Namespace)
-media_xml_tag = '{{{0}}}media'.format(mp_namesp)
-
-# XML tag for the 'mimetype' XML element in mediapackage XML representations (with Namespace)
-mimetype_xml_tag = '{{{0}}}mimetype'.format(mp_namesp)
-
-# XML tag for the 'track' XML element in mediapackage XML representations (with Namespace)
-track_xml_tag = '{{{0}}}track'.format(mp_namesp)
-
-# XML tag for the 'publication' element in mediapackage XML representations (with Namespace)
-publication_xml_tag = '{{{0}}}publication'.format(mp_namesp)
-
-# XML attribute containing the video URL in smil files
-smil_src_attr = 'src'
-
-# Attributes to be removed in elements created from SMIL files
-smil_filter_attributes = ['transport']
-
-# Suffix of all element tags representing video qualities
-tag_quality_suffix = "-quality"
-
-# Function to tell whether or not a certain tag represents a video quality
-def is_quality_tag(tag):
-    return tag.endswith(tag_quality_suffix)
-
-# ACL XML namespace
-acl_namesp = "http://org.opencastproject.security"
-
-# ACL XML root tag
-acl_root = "{{{0}}}acl".format(acl_namesp)
-
-# ACL XML element tag
-acl_element = "{{{0}}}ace".format(acl_namesp)
-
-# ACL XML role tag
-acl_role = "{{{0}}}role".format(acl_namesp)
-
-# ACL XML action tag
-acl_action = "{{{0}}}action".format(acl_namesp)
-
-# ACL XML allow tag
-acl_allow = "{{{0}}}allow".format(acl_namesp)
-
-# Function to return total number of elements in a search
-def get_total(mp_list_xml):
-    return int(mp_list_xml.get('total'))
+# Tags that should be removed from all elements
+remove_tags = ['engage-download', 'engage-streaming']
 
 #############
 # Endpoints #
@@ -276,7 +195,7 @@ query_archive_series_id = 'series'
 # Size of the results queries
 query_page_size = 'limit'
 # Which page of the results are we requesting
-query_page = 'offset'
+query_offset = 'offset'
 
 ## Post parameters ##
 ep_series_post_series = 'series'
