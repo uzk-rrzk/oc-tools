@@ -155,7 +155,7 @@ log_conf = {
 
 
 # Flavors that should be not ingested
-filter_flavors = ['security/xacml+series', 'security/xacml+episode']
+filter_flavors = ['security/xacml+series', 'security/xacml+episode', 'dublincore/series']
 
 # Tags that should be removed from all elements
 remove_tags = ['engage-download', 'engage-streaming']
