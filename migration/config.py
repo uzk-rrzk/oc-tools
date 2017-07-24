@@ -21,6 +21,9 @@ ingested_filename = ".ingested"
 # File used as flag to mark whether a certain MP failed to ingest or a series have ingest failures
 failed_filename = ".failed"
 
+# The name of the pidfile
+pidfilename = "/mnt/opencast3/migration/migration.pid"
+
 # The mode applied to the created directories
 dir_mode = 0o755
 
