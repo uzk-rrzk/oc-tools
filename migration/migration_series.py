@@ -556,9 +556,40 @@ def __parse_args():
 
 
 if __name__ == '__main__':
+    pid = str(os.getpid())
+    old_pid = None
+    pidfile = None
+    try:
+        pidfile = open(config.pidfilename, 'r+')
+        old_pid = pidfile.readline()
+        os.kill(int(old_pid), 0)
+        LOGGER.info("An instance of this script is already running as process %d. Aborting...", old_pid)
+        sys.exit(1)
+    except OSError as err:
+        if err.errno == errno.ESRCH:
+            LOGGER.warn("Found pidfile with pid %d but the script is not running. Going forward...", old_pid)
+        else:
+            raise
+    except ValueError as err:
+        LOGGER.warn("Found pidfile with invalid pid %s: %s. Going forward...", old_pid, err)
+    except IOError as ioerr:
+        if ioerr.errno == errno.ENOENT:
+            with open(config.pidfilename, 'w') as pidfile:
+                pidfile.write(pid)
+        else:
+            raise
+    finally:
+        if pidfile is not None:
+            pidfile.close()
+
     try:
         __migrate_series(**vars(__parse_args()))
         sys.exit(0)
     except migration.MigrationException as exc:
         LOGGER.error("(%s) %s", type(exc).__name__, exc)
         sys.exit(1)
+    finally:
+        try:
+            os.remove(config.pidfilename)
+        except OSError:
+            pass
