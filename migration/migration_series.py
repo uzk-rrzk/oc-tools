@@ -563,19 +563,23 @@ if __name__ == '__main__':
         pidfile = open(config.pidfilename, 'r+')
         old_pid = pidfile.readline()
         os.kill(int(old_pid), 0)
-        LOGGER.info("An instance of this script is already running as process %d. Aborting...", old_pid)
+        LOGGER.error("An instance of this script is already running as process %s. Aborting...", old_pid)
         sys.exit(1)
-    except OSError as err:
-        if err.errno == errno.ESRCH:
-            LOGGER.warn("Found pidfile with pid %d but the script is not running. Going forward...", old_pid)
-        else:
-            raise
     except ValueError as err:
         LOGGER.warn("Found pidfile with invalid pid %s: %s. Going forward...", old_pid, err)
-    except IOError as ioerr:
-        if ioerr.errno == errno.ENOENT:
-            with open(config.pidfilename, 'w') as pidfile:
-                pidfile.write(pid)
+        pidfile.seek(0)
+        pidfile.truncate()
+        pidfile.write(pid)
+    except (IOError, OSError) as err:
+        if err.errno in [errno.ESRCH, errno.ENOENT]:
+            if err.errno == errno.ESRCH:
+                LOGGER.warn("Found pidfile with pid %s but the script is not running. Going forward...", old_pid)
+                pidfile.seek(0)
+                pidfile.truncate()
+            elif err.errno == errno.ENOENT:
+                LOGGER.debug("Creating pidfile with pid %s", pid)
+                pidfile = open(config.pidfilename, 'w')
+            pidfile.write(pid)
         else:
             raise
     finally:
