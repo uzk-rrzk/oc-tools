@@ -1,6 +1,6 @@
 #! /bin/python
 
-from new_migration import OpencastDigestAuth
+from migration import OpencastDigestAuth
 
 #########
 # Paths #
@@ -10,7 +10,7 @@ from new_migration import OpencastDigestAuth
 inbox = "/mnt/opencast3/storage/migrate-all-inbox/"
 
 # Whether or not to keep the ingested files after ingestion
-delete_ingested = False
+delete_ingested = True
 
 # Name of the manifest file
 manifest_filename = "manifest.xml"
