@@ -254,8 +254,12 @@ def migrate_mediapackage(mp_xml, root_dir, exporter):
     LOGGER.debug("Attempting to migrate mediapackage '%s'", mp_id)
 
     mp_dir = os.path.join(root_dir, mp_id)
-    if not os.path.exists(mp_dir):
+    try:
         os.makedirs(mp_dir, config.dir_mode)
+    except OSError as ose:
+        if ose.errno != errno.EEXIST:
+            # Ignore the exception raised when the directory already exists
+            raise
 
     # Calculate file flags for ingested and failed mediapackages
     ingested_file = os.path.join(mp_dir, config.ingested_filename)
@@ -349,12 +353,15 @@ def migrate_mediapackage(mp_xml, root_dir, exporter):
             for root, dirs, files in os.walk(mp_dir, topdown=False):
                 for name in files:
                     full_path = os.path.join(root, name)
-                    if not os.path.exists(full_path):
-                        continue
-                    if os.path.samefile(full_path, ingested_file):
-                        continue
-                    if os.path.samefile(full_path, failed_file):
-                        continue
+                    for check_file in [ingested_file, failed_file]:
+                        try:
+                            if os.path.samefile(full_path, check_file):
+                                continue
+                        except OSError as ose:
+                            # The file may not exist, so the error can be safely ignored
+                            if ose.errno != errno.ENOENT:
+                                # Otherwise, raise the exception
+                                raise
                     os.remove(full_path)
                 for name in dirs:
                     os.rmdir(os.path.join(root, name))
