@@ -639,10 +639,11 @@ class PublishServiceExport(ArchiveServiceExport):
                 reverse=True
             )
 
-            for index, video_xml in enumerate(videos):
+            tag_index = 0
+            for video_xml in videos:
                 # Break if there are more videos in the SMIL file as qualities
                 # Ignore if the list of quality tags is empty
-                if self.__quality_tags and index >= len(self.__quality_tags):
+                if self.__quality_tags and tag_index >= len(self.__quality_tags):
                     break
 
                 # Create a new MP element.
@@ -652,38 +653,46 @@ class PublishServiceExport(ArchiveServiceExport):
                 # Assign the corresponding URL
                 new_element_url.text = video_xml.get(XML_SMIL_SRC_ATTR)
 
-                # Get this element's tags
-                tags_xml = new_element.find(XML_TAGS_TAG)
-                if tags_xml is None:
-                    # Create the 'tags' subelement, if it does not exist
-                    tags_xml = etree.SubElement(new_element, XML_TAGS_TAG)
-                # Add a quality tag, if the list is not empty
-                if self.__quality_tags:
-                    tag_xml = etree.SubElement(tags_xml, XML_TAG_TAG)
-                    tag_xml.text = self.__quality_tags[index]
-                    self._logger.debug(
-                        "Added quality tag %s to element %s",
-                        self.__quality_tags[index], new_element.get(XML_MP_ID_ATTR)
+                try:
+                    # Export this element
+                    # Use the 'grandparent' method, because the DuplicateElementException
+                    # is ignored in both this class' and this class' parent's method
+                    # If that exception is raised, the element is no further processed
+                    ServiceExport.export_element(self, new_element_url)
+
+                    # Assuming a exported URL (a filesystem path, actually) of:
+                    #     root/mp_id/element_id/filename
+                    # obtain the new element ID by removing the filename and the root
+                    new_element.set(
+                        XML_MP_ID_ATTR,
+                        os.path.basename(os.path.dirname(new_element_url.text))
                     )
 
-                # Export this element
-                self.export_element(new_element_url)
+                    # Adjust mimetype, if present
+                    mimetype_xml = new_element.find(XML_MIME_TAG)
+                    if mimetype_xml is not None:
+                        mimetype_xml.text = mimetypes.guess_type(new_element_url.text)[0]
 
-                # Assuming a exported URL (a filesystem path, actually) of:
-                #     root/mp_id/element_id/filename
-                # obtain the new element ID by removing the filename and the root
-                new_element.set(
-                    XML_MP_ID_ATTR,
-                    os.path.basename(os.path.dirname(new_element_url.text))
-                )
+                    # Get this element's tags
+                    tags_xml = new_element.find(XML_TAGS_TAG)
+                    if tags_xml is None:
+                        # Create the 'tags' subelement, if it does not exist
+                        tags_xml = etree.SubElement(new_element, XML_TAGS_TAG)
+                    # Add a quality tag, if the list is not empty
+                    if self.__quality_tags:
+                        tag_xml = etree.SubElement(tags_xml, XML_TAG_TAG)
+                        tag_xml.text = self.__quality_tags[tag_index]
+                        self._logger.debug(
+                            "Added quality tag %s to element %s",
+                            self.__quality_tags[tag_index], new_element.get(XML_MP_ID_ATTR)
+                        )
+                        tag_index += 1
 
-                # Adjust mimetype, if present
-                mimetype_xml = new_element.find(XML_MIME_TAG)
-                if mimetype_xml is not None:
-                    mimetype_xml.text = mimetypes.guess_type(new_element_url.text)[0]
-
-                # Add element to the return list
-                self.__elements_from_smil.append(new_element)
+                    # Add element to the return list
+                    self.__elements_from_smil.append(new_element)
+                except DuplicateElementException as dee:
+                    self._logger.warn(
+                        "Ignoring duplicate element found in SMIL file '%s': %s", smil_path, dee)
 
 
 class Export(object):
