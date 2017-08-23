@@ -13,17 +13,17 @@ from os import path
 # New URL to which the old ones will be converted to
 # IT HAS TO BE THE FULL URL, AS SPECIFIED IN THE MATTERHORN CONFIG
 # Example: http://pre-engage.rrz.uni-koeln.de:8080/static
-NEW_DLS = 'http://pre-engage.rrz.uni-koeln.de:8080/static'
+NEW_DLS =
 
 # The URLs with these protocols will not be modified
 EXCLUDE_PROTO=[ 'rtmp', 'rtmps', 'rtmpt', 'rtsp' ]
 
 # URL of the machine running the Search service where the URLs will be updated
-SEARCH_URL='http://pre-engage.rrz.uni-koeln.de:8080'
+SEARCH_URL=
 # Digest user to access the Search service above
-USER = "restadmin"
+USER =
 # Digest password to access the Search service above
-PASSWD = "Upload14!"
+PASSWD =
 
 # Address of the search (get) endpoint
 SEARCH_ENDPOINT='/search/episode.xml'
