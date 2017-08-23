@@ -205,16 +205,26 @@ def create_file_flag(path):
     Creates a file flag at the given path, creating the necessary directories
     """
     try:
+        LOGGER.debug("Creating file flag: '%s'", path)
         with open(path, 'w'):
             pass
+        LOGGER.debug("Created file flag: '%s'", path)
     except IOError as ioe:
         if ioe.errno == errno.ENOENT:
             # Handle the case when the series is empty
             # If so, the directory was not yet created
             # Any other errors from this point should be raised
-            os.makedirs(os.path.dirname(path), config.dir_mode)
-            with open(path, 'w'):
-                pass
+            try:
+                LOGGER.debug("Creating file flag's parent directory after an error: '%s'", path)
+                os.makedirs(os.path.dirname(path), config.dir_mode)
+                LOGGER.debug("Trying to create file flag for a second time: '%s'", path)
+                with open(path, 'w'):
+                    pass
+            except OSError as oserr:
+                if oserr.errno != errno.EEXIST:
+                    # This should never happen
+                    LOGGER.error("Error creating parent directory of file '%s': '%s'", path, oserr)
+                raise
         else:
             raise
 
