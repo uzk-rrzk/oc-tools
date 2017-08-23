@@ -302,7 +302,9 @@ def migrate_mediapackage(mp_xml, root_dir, exporter):
         # Mark this MP as ingested
         create_file_flag(ingested_file)
 
-        return
+        raise migration.IngestedException(
+            "Mediapackage '{}' is not marked as ingested, "
+            "but is already archived in the destination system".format(mp_id))
 
     except migration.NotFoundException:
         # This is expected
@@ -400,13 +402,15 @@ def migrate_mediapackages(series_id, dst_dir, exporter, iterate=False):
     mp_list = exporter.get_mediapackages_from_series(series_id)
     mp_processed = 0
     failed = False
+    migrated = False
     while mp_list:
         # Iterate through the results
         for mp_xml in mp_list:
+            if migrated and not iterate:
+                return
             try:
                 migrate_mediapackage(mp_xml, series_dir, exporter)
-                if not iterate:
-                    return
+                migrated = True
             except migration.IngestedException as ing_exc:
                 # Log as debug and keep going
                 # This means only that the MP was already ingested succesfully
@@ -431,12 +435,16 @@ def migrate_mediapackages(series_id, dst_dir, exporter, iterate=False):
     # Mark the series as failed or ingested
     if failed:
         LOGGER.info("Marking series %s as FAILED", series_id)
-        flag = failed_file
+        create_file_flag(failed_file)
+        if not migrated:
+            raise migration.AlreadyFailedException(
+                "Series '{}' could not be completely migrated".format(series_id))
     else:
         LOGGER.info("Marking series %s as INGESTED", series_id)
-        flag = ingested_file
-
-    create_file_flag(flag)
+        create_file_flag(ingested_file)
+        if not migrated:
+            raise migration.IngestedException(
+                "Series '{}' was completely ingested, but not marked as such".format(series_id))
 
 
 def edit_series(series):
