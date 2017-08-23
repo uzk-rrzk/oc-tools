@@ -362,19 +362,26 @@ def migrate_mediapackage(mp_xml, root_dir, exporter):
     finally:
         # Delete ingested files, if so configured
         if config.delete_ingested:
+            LOGGER.debug("Deleting export files at '%s'", mp_dir)
             for root, dirs, files in os.walk(mp_dir, topdown=False):
                 for name in files:
                     full_path = os.path.join(root, name)
+                    delete = True
                     for check_file in [ingested_file, failed_file]:
                         try:
                             if os.path.samefile(full_path, check_file):
-                                continue
+                                LOGGER.debug("Keeping flag file: '%s'", check_file)
+                                delete = False
+                                break
                         except OSError as ose:
                             # The file may not exist, so the error can be safely ignored
                             if ose.errno != errno.ENOENT:
                                 # Otherwise, raise the exception
                                 raise
-                    os.remove(full_path)
+                    if delete:
+                        LOGGER.debug("Removing export file: '%s'", full_path)
+                        os.remove(full_path)
+                        LOGGER.debug("Removed export file: '%s'", full_path)
                 for name in dirs:
                     os.rmdir(os.path.join(root, name))
 
