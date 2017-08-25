@@ -13,7 +13,10 @@ from lxml import etree
 SEARCH_ENDPOINT='/search/episode.xml'
 
 # Address of the episode (get) endpoint
-EPISODE_ENDPOINT= 'episode/episode.xml'
+EPISODE_ENDPOINT= 'archive/episode.xml'
+
+# Address of the episode (get) endpoint
+LEGACY_EPISODE_ENDPOINT= 'episode/episode.xml'
 
 
 def main(argv=None):
@@ -23,6 +26,8 @@ def main(argv=None):
 
     if argv.service == 'search':
         endpoint = SEARCH_ENDPOINT
+    elif argv.legacy:
+        endpoint = LEGACY_EPISODE_ENDPOINT
     else:
         endpoint = EPISODE_ENDPOINT
         
@@ -86,5 +91,6 @@ if __name__ == '__main__':
     parser.add_argument('output', default="-", nargs='?', help='An output file to write the result to')
     parser.add_argument('-u', '--user', help='The digest user to access the Opencast endpoint')
     parser.add_argument('-p', '--password', help='The digest password to access the Opencast endpoint')
+    parser.add_argument('-l', '--legacy', action='store_true', help='Use archive legacy endpoint')
 
     sys.exit(main(parser.parse_args()))
