@@ -937,9 +937,9 @@ if __name__ == '__main__':
     # Argument parser
     parser = argparse.ArgumentParser(description="Download all the published videos in a Matterhorn series")
 
-    # We are only interested in file names, but this way the parser makes sure those files exist
     parser.add_argument('server_url', help='The URL of the engage server where the videos will be downloaded from')
     parser.add_argument('series_id', help='The ID of the series to which the videos that should be downloaded belong')
+    # We are only interested in file names, but this way the parser makes sure those files exist
     parser.add_argument('download_dir', action=checkdir, help='The destination directory name. It must not exist or be empty')
     parser.add_argument('-s', '--ssh_url', help='The SSH-reachable server URL, if the public URL does not allow it')
     parser.add_argument('-u', '--ssh_user', help='The SSH user to connect to the server')
