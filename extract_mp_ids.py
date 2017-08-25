@@ -86,7 +86,7 @@ def main(argv=None):
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Extract Mediapackage IDs')
-    parser.add_argument('service', help="The service we want to list the URLs from", choices=['episode', 'search'])
+    parser.add_argument('service', help="The service we want to list the IDs from", choices=['episode', 'search'])
     parser.add_argument('url', help='URL of the server running the selected service')
     parser.add_argument('output', default="-", nargs='?', help='An output file to write the result to')
     parser.add_argument('-u', '--user', help='The digest user to access the Opencast endpoint')
