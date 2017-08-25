@@ -25,3 +25,15 @@ None at all. Just contact me and we'll see what we can do.
 
 All this work was done as part of my job at the University of Cologne.
 Please report problems, send your praise, criticism, monetary prizes, death threats and so on to: Rubén Pérez <ruben.perez@uni-koeln.de>
+
+### Content summary ###
+
+* **`extract_mp_ids.py`**: Extract full list of Mediapackage IDs present in either the archive of the search index
+* **`mh_clean_series.py`**: Delete empty series in an Opencast system
+* **`mh_clean_unarchived.py`**: Delete all workflows that belong to mediapackages that are not/no longer archived
+* **`mh_clean_workflows.py`**: Delete workflows based on their state
+* **`mh_edit_published_urls.py`**: Edit URLs in mediapackages published in Opencast, for instance when a download server URL changes.
+* **`mh_export.py`**: Download all the published videos in a Matterhorn series
+* **`migration`**: Scripts to perform a migration of mediapackages between Matterhorn/Opencast systems
+* **`SelectSeries.py`**: Create a list of series in a file (normally to migrate them using the scripts above)
+* **`old`**: Older scripts. They are not guaranteed to work or be relevant anymore (even less so than the others!)
